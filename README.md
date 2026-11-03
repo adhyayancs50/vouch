@@ -19,4 +19,3 @@ Privacy-first interview verification system.
 4. [Feature specifications](docs/04-feature-specifications.md)
 5. [API and database documentation](docs/05-api-and-database-documentation.md)
 6. [Team workflow](docs/06-team-workflow.md)
-7. [AI-assisted development guidelines](docs/07-ai-assisted-development-guidelines.md)
