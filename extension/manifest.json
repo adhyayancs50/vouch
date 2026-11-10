@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Vouch — Local Prototype",
+  "version": "0.1.0",
+  "description": "Consent-based local tab-switch tracking for Vouch development.",
+  "permissions": ["storage"],
+  "action": { "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" }
+}
