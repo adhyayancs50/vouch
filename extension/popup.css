@@ -1,0 +1,9 @@
+body { width: 340px; margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; color: #162c35; background: #f6faf9; }
+h1 { margin: 0; }
+.label { color: #48635c; font-weight: 600; }
+label { display: block; }
+.actions { display: flex; gap: 8px; }
+button { padding: 9px 12px; border: 0; border-radius: 6px; background: #146653; color: white; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+pre { max-height: 220px; overflow: auto; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+#status { font-weight: 600; }

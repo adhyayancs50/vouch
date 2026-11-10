@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vouch</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <h1>Vouch</h1>
+    <p class="label">Local test session</p>
+    <p>While active, this prototype records tab switches with tab IDs and timestamps. Records stay in this browser. It does not collect URLs, page contents, or keystrokes.</p>
+    <label><input id="consent" type="checkbox"> I agree to this recording for a test session.</label>
+    <p id="status" role="status">Loading…</p>
+    <div class="actions">
+      <button id="start" disabled>Start test session</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+    <p id="count">Recorded switches: 0</p>
+    <p>Starting a new test clears the previous test’s records. Up to 1,000 switches are kept per test; tracking stops at that limit.</p>
+    <details>
+      <summary>View local records</summary>
+      <pre id="events">[]</pre>
+    </details>
+  </body>
+</html>
