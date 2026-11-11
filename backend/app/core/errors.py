@@ -18,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 logger = logging.getLogger("vouch.errors")
 
@@ -81,6 +82,41 @@ async def validation_exception_handler(_: Request, exc: RequestValidationError) 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
     return error_response(500, "INTERNAL_ERROR", "An unexpected server error occurred.")
+
+
+class UnhandledErrorMiddleware:
+    """Turn unhandled exceptions into the standard 500 response *inside* CORS.
+
+    FastAPI handles ``Exception`` in Starlette's ServerErrorMiddleware, which
+    always sits outside every user middleware, so those 500s would be sent
+    without CORS headers and a browser frontend would see an opaque network
+    error instead of the JSON body. Registering this middleware before
+    CORSMiddleware places it inside CORS, so the 500 gets CORS headers too.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, tracking_send)
+        except Exception as exc:
+            if response_started:
+                raise
+            response = await unhandled_exception_handler(Request(scope), exc)
+            await response(scope, receive, send)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
