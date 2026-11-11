@@ -41,6 +41,12 @@ h1 { font-size: clamp(28px, 3.2vw, 36px); font-weight: 600; letter-spacing: -1.2
 .create-button svg { width: 18px; height: 18px; }
 .create-action > span { display: block; font-size: 10px; color: #68766f; margin-top: 7px; }
 .sessions-panel { background: #fff; border: 1px solid #dfe5df; border-radius: 12px; box-shadow: 0 3px 9px #19372b03; overflow: hidden; }
+.backend-connection-test { margin-top: 20px; }
+.connection-button { background: #fff; color: #325e53; border: 1px solid #325e53; border-radius: 7px; padding: 10px 18px; font-size: 14px; font-weight: 550; cursor: pointer; }
+.connection-button:hover:not(:disabled) { background: #eaf0e4; }
+.connection-button:disabled { cursor: wait; opacity: .65; }
+.connection-status { color: #265e4c; font-size: 13px; margin-top: 8px; overflow-wrap: anywhere; }
+.connection-error { color: #a13232; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 19px 26px; border-bottom: 1px solid #edf0eb; }
 .panel-heading h2 { font-size: 14px; font-weight: 600; }
 .badge { font-size: 11px; color: #647469; background: #f3f5f0; padding: 3px 10px; border-radius: 5px; }
