@@ -1,4 +1,5 @@
 import { AboutVouch } from './components/AboutVouch'
+import { BackendConnectionTest } from './components/BackendConnectionTest'
 import { Header } from './components/Header'
 import { Icon } from './components/Icon'
 import { SessionEmptyState } from './components/SessionEmptyState'
@@ -15,6 +16,7 @@ export default function App() {
             <div className="create-action"><button className="create-button" type="button" disabled aria-describedby="create-note"><Icon name="plus" />Create Session</button><span id="create-note">Session creation is coming soon</span></div>
           </div>
           <SessionEmptyState />
+          <BackendConnectionTest />
         </section>
         <AboutVouch />
       </main>
