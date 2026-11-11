@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import register_routers
 from app.core.config import Settings, get_settings
-from app.core.errors import register_exception_handlers
+from app.core.errors import UnhandledErrorMiddleware, register_exception_handlers
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,6 +28,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
 
+    # Order matters: the last middleware added is the outermost. Adding the
+    # error middleware first keeps it inside CORS, so 500s carry CORS headers.
+    app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
