@@ -5,10 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Vouch</title>
     <link rel="stylesheet" href="popup.css">
+    <script src="backend-config.js" defer></script>
+    <script src="test-event.js" defer></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
     <h1>Vouch</h1>
+    <section aria-label="Backend connection test">
+      <button id="send-test-event">Send Test Event</button>
+      <p id="test-event-status" role="status" aria-live="polite">Manual connection test. No browser records are sent.</p>
+      <details>
+        <summary>Inspect test response</summary>
+        <pre id="test-event-response">No request sent yet.</pre>
+      </details>
+    </section>
     <p class="label">Local test session</p>
     <p>While active, this prototype records tab switches with tab IDs and timestamps. Records stay in this browser. It does not collect URLs, page contents, or keystrokes.</p>
     <label><input id="consent" type="checkbox"> I agree to this recording for a test session.</label>
