@@ -33,14 +33,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(settings.cors_origins),
+        # Frontend origins, plus explicit chrome-extension:// origins in dev mode only.
+        allow_origins=list(settings.allowed_origins),
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )
 
     register_exception_handlers(app)
-    register_routers(app)
+    register_routers(app, settings)
+    if settings.enable_dev_endpoints:
+        logging.getLogger("vouch").warning(
+            "Development endpoints are ENABLED (/api/dev/*). Local development only."
+        )
     return app
 
 
