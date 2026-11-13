@@ -101,7 +101,7 @@ These are observations from the current code and docs, not the results of a pene
 
 ## 7. Manual Chrome extension testing
 
-Javier performed the checks below on November 13, 2026, with the FastAPI backend running locally and development endpoints enabled. These are manual results. They are not part of the pytest count in section 4. No event-id strings, HTTP status codes, or response bodies were copied into this report beyond what he reported.
+Javier performed the checks below on November 13, 2026. The success and local-recording checks used a local FastAPI backend with development endpoints enabled. The disconnection check was done after that server was stopped. These are manual results. They are not part of the pytest count in section 4. No event-id strings, HTTP status codes, or response bodies were copied into this report beyond what he reported.
 
 ### Passed on November 13, 2026
 
@@ -117,8 +117,9 @@ Javier performed the checks below on November 13, 2026, with the FastAPI backend
 | Gave consent and started a local recording session | Passed |
 | Switched Chrome tabs and confirmed **Recorded switches** increased to 6 | Passed |
 | Stopped the session and confirmed recording stopped | Passed |
-
-This path uses the temporary dev endpoints and the extension's local recording controls. It is not a product interview session, and it does not show that events are stored in SQLite.
+| Stopped the FastAPI server, clicked **Send Test Event**, and confirmed a clear connection-error message instead of a false success. The extension interface stayed visible and usable | Passed |
+| Verified recording cannot start without consent: the Start button was disabled, the status remained "Not recording", and switching tabs did not increase the recorded-switch count or create new events | Passed |
+The success and recording checks use the temporary dev endpoints and the extension's local recording controls. They are not a product interview session, and they do not show that events are stored in SQLite. The disconnection check covers only the stopped-server case. Timeout, 403, 404, and 422 were not part of it.
 
 ### Not tested
 
@@ -126,9 +127,8 @@ The following were not run. They are not passed.
 
 | Scenario | Status |
 | --- | --- |
-| Recording before consent | Not tested |
 | Whether tab-switch records stay exclusively local and are not uploaded by **Send Test Event** | Not tested |
-| Backend disconnection and other error handling (connection failure, timeout, 403, 404, 422) | Not tested |
+| Timeout, 403, 404, and 422 error handling | Not tested |
 | Session persistence after restarting Chrome | Not tested |
 | Restarting the backend and confirming the in-memory dev-event list is empty | Not tested |
 | `POST /api/dev/events` with development endpoints left disabled | Not tested |
@@ -152,7 +152,7 @@ Other limits of this report:
 
 ## 9. Recommended next QA activities
 
-1. Finish the untested rows in section 7. The November 13 happy path is already passed. Still open: recording before consent, whether tab-switch records stay local, backend error handling, session persistence after a Chrome restart, backend restart clearing the dev-event list, and the disabled-endpoint 404. Do not mark those passed until they are run.
+1. Finish the untested rows in section 7. The November 13 happy path is already passed, including the stopped-server connection error. Still open: recording before consent, whether tab-switch records stay local, timeout, 403, 404, and 422 handling, session persistence after a Chrome restart, backend restart clearing the dev-event list, and the disabled-endpoint 404. Do not mark those passed until they are run.
 2. Keep product-session tests out of the suite until Srihith's routes and SQLite storage exist. When they do, add them against `docs/05` (`/api/sessions/...`), not against `/api/dev/events`.
 3. After that API exists, test the draft rules that are still unimplemented: missing or wrong candidate token, inactive session, duplicate `event_id`, and the five product event types. Resolve the open questions in `backend/SECURITY_NOTES_DRAFT.md` with Srihith before writing those assertions.
 4. Ask Justin before adding any Chrome automation. The current extension test is a manual popup flow.
