@@ -104,6 +104,31 @@ def test_unknown_top_level_field_rejected(dev_client):
     assert response.status_code == 422
 
 
+def _reject_client_field(dev_client, field, value):
+    """A server-owned field must 422 and leave the already stored event untouched."""
+    stored = dev_client.post("/api/dev/events", json=valid_event())
+    assert stored.status_code == 201
+    stored_id = stored.json()["event_id"]
+
+    rejected = dev_client.post("/api/dev/events", json=valid_event(**{field: value}))
+    assert rejected.status_code == 422
+    body = rejected.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert any(detail["location"] == f"body.{field}" for detail in body["error"]["details"])
+
+    listed = dev_client.get("/api/dev/events").json()
+    assert listed["total_events"] == 1
+    assert [event["event_id"] for event in listed["events"]] == [stored_id]
+
+
+def test_client_supplied_event_id_rejected(dev_client):
+    _reject_client_field(dev_client, "event_id", "evt_clientpickedclientpickedclient1")
+
+
+def test_client_supplied_received_at_rejected(dev_client):
+    _reject_client_field(dev_client, "received_at", "2020-01-01T00:00:00Z")
+
+
 def test_non_json_body_rejected(dev_client):
     response = dev_client.post(
         "/api/dev/events", content=b"hello", headers={"Content-Type": "text/plain"}
@@ -143,6 +168,33 @@ def test_get_returns_stored_events_chronologically(dev_client):
         "received_at": first["received_at"],
     }
     assert first["received_at"].endswith("Z")
+
+
+def test_identical_timestamps_keep_receive_order(dev_client):
+    """Same client timestamp: list by received_at (oldest first), not session_id."""
+    same_timestamp = "2026-11-12T20:30:00Z"
+    # Session ids are alphabetical in the opposite order from submission.
+    submitted_ids = []
+    for session_id in ("z-session", "a-session", "m-session"):
+        response = dev_client.post(
+            "/api/dev/events",
+            json=valid_event(session_id=session_id, timestamp=same_timestamp),
+        )
+        assert response.status_code == 201
+        submitted_ids.append(response.json()["event_id"])
+
+    first = dev_client.get("/api/dev/events")
+    second = dev_client.get("/api/dev/events")
+    assert first.status_code == 200
+    assert second.status_code == 200
+    events = first.json()["events"]
+    assert first.json()["total_events"] == 3
+    assert [event["event_id"] for event in events] == submitted_ids
+    assert [event["session_id"] for event in events] == ["z-session", "a-session", "m-session"]
+    assert [event["timestamp"] for event in events] == [same_timestamp] * 3
+    received_at = [event["received_at"] for event in events]
+    assert received_at == sorted(received_at)
+    assert [event["event_id"] for event in second.json()["events"]] == submitted_ids
 
 
 def test_get_when_empty(dev_client):
