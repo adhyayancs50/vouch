@@ -119,6 +119,11 @@ Javier performed the checks below on November 13, 2026. The success and local-re
 | Stopped the session and confirmed recording stopped | Passed |
 | Stopped the FastAPI server, clicked **Send Test Event**, and confirmed a clear connection-error message instead of a false success. The extension interface stayed visible and usable | Passed |
 | Verified recording cannot start without consent: the Start button was disabled, the status remained "Not recording", and switching tabs did not increase the recorded-switch count or create new events | Passed |
+| Verified that five Chrome tab switches during an active local recording session did not upload events to the backend: `total_events` remained at 0 before and after | Passed |
+| Restarted the backend with `VOUCH_ENABLE_DEV_ENDPOINTS=false`; `GET /health` returned healthy and `GET /api/dev/events` returned `NOT_FOUND` | Passed |
+| Submitted one test event and confirmed `total_events` was 1; restarted the FastAPI backend and confirmed `total_events` dropped to 0 | Passed |
+| With `VOUCH_ENABLE_DEV_ENDPOINTS=false`, clicked **Send Test Event** and confirmed HTTP 404. The extension displayed a clear error message instead of reporting success | Passed |
+| Started the backend with `VOUCH_ENABLE_DEV_ENDPOINTS` omitted entirely; `GET /health` returned healthy and `GET /api/dev/events` returned `NOT_FOUND` | Passed |
 The success and recording checks use the temporary dev endpoints and the extension's local recording controls. They are not a product interview session, and they do not show that events are stored in SQLite. The disconnection check covers only the stopped-server case. Timeout, 403, 404, and 422 were not part of it.
 
 ### Not tested
@@ -127,11 +132,8 @@ The following were not run. They are not passed.
 
 | Scenario | Status |
 | --- | --- |
-| Whether tab-switch records stay exclusively local and are not uploaded by **Send Test Event** | Not tested |
+| Verify through Chrome DevTools Network inspection that no tab-switch data is transmitted to any other endpoints | Not tested |
 | Timeout, 403, 404, and 422 error handling | Not tested |
-| Session persistence after restarting Chrome | Not tested |
-| Restarting the backend and confirming the in-memory dev-event list is empty | Not tested |
-| `POST /api/dev/events` with development endpoints left disabled | Not tested |
 | Any real product session API (`/api/sessions`, join, and `/api/sessions/{session_id}/events`) | Not tested. These routes are not implemented. |
 
 ## 8. Known limitations and dependencies
