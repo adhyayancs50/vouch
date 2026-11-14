@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
     "http://localhost:5173",
@@ -17,6 +18,15 @@ DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
 
 # Chrome extension IDs are exactly 32 characters in the range a-p.
 _EXTENSION_ORIGIN = re.compile(r"chrome-extension://[a-p]{32}")
+
+# Local SQLite file inside backend/data/ (gitignored). Override with VOUCH_DATABASE_URL.
+DEFAULT_DATABASE_URL = "sqlite:///" + str(
+    (Path(__file__).resolve().parents[2] / "data" / "vouch.db").as_posix()
+)
+
+# Candidate join codes expire this many hours after the session is created.
+DEFAULT_JOIN_CODE_TTL_HOURS = 72
+MAX_JOIN_CODE_TTL_HOURS = 24 * 30
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"", "0", "false", "no", "off"}
@@ -55,6 +65,16 @@ def _parse_bool(name: str, raw: str | None) -> bool:
     raise ValueError(f"{name} must be true or false; got {raw!r}.")
 
 
+def _parse_ttl_hours(raw: str | None) -> int:
+    if raw is None or not raw.strip():
+        return DEFAULT_JOIN_CODE_TTL_HOURS
+    try:
+        hours = int(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"VOUCH_JOIN_CODE_TTL_HOURS must be a whole number; got {raw!r}.") from exc
+    return hours
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "vouch-backend"
@@ -65,8 +85,20 @@ class Settings:
     enable_dev_endpoints: bool = False
     # Exact chrome-extension:// origins allowed by CORS, only while dev endpoints are on.
     extension_origins: tuple[str, ...] = ()
+    # SQLAlchemy URL for persistent data (interview sessions). Used only in dev mode for now.
+    # None means DEFAULT_DATABASE_URL, looked up when the app starts (tests override it).
+    database_url: str | None = None
+    join_code_ttl_hours: int = DEFAULT_JOIN_CODE_TTL_HOURS
+    # Failed candidate join attempts allowed per client within the window before HTTP 429.
+    join_max_failed_attempts: int = 10
+    join_attempt_window_seconds: int = 15 * 60
 
     def __post_init__(self) -> None:
+        if not 1 <= self.join_code_ttl_hours <= MAX_JOIN_CODE_TTL_HOURS:
+            raise ValueError(
+                f"VOUCH_JOIN_CODE_TTL_HOURS must be between 1 and {MAX_JOIN_CODE_TTL_HOURS}; "
+                f"got {self.join_code_ttl_hours}."
+            )
         if self.enable_dev_endpoints and self.environment != "development":
             raise ValueError(
                 "VOUCH_ENABLE_DEV_ENDPOINTS=true is only allowed when VOUCH_ENV=development "
@@ -77,6 +109,10 @@ class Settings:
                 "VOUCH_EXTENSION_ORIGINS is a development setting; it requires "
                 "VOUCH_ENABLE_DEV_ENDPOINTS=true."
             )
+
+    @property
+    def resolved_database_url(self) -> str:
+        return self.database_url or DEFAULT_DATABASE_URL
 
     @property
     def allowed_origins(self) -> tuple[str, ...]:
@@ -98,4 +134,6 @@ def get_settings() -> Settings:
             "VOUCH_ENABLE_DEV_ENDPOINTS", os.getenv("VOUCH_ENABLE_DEV_ENDPOINTS")
         ),
         extension_origins=_parse_extension_origins(os.getenv("VOUCH_EXTENSION_ORIGINS")),
+        database_url=os.getenv("VOUCH_DATABASE_URL", "").strip() or None,
+        join_code_ttl_hours=_parse_ttl_hours(os.getenv("VOUCH_JOIN_CODE_TTL_HOURS")),
     )

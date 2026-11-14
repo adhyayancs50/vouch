@@ -17,27 +17,17 @@ import threading
 import uuid
 from collections import deque
 from datetime import datetime, timezone
-from ipaddress import ip_address
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.access import require_local_client
 
 MAX_STORED_EVENTS = 1000
 MAX_METADATA_BYTES = 4096
 
 SupportedDevEventType = Literal["EXTENSION_CONNECTED"]
-
-
-def require_local_client(request: Request) -> None:
-    """Reject anyone not on this machine, even if uvicorn is bound to 0.0.0.0."""
-    host = request.client.host if request.client else None
-    try:
-        is_local = host is not None and ip_address(host).is_loopback
-    except ValueError:
-        is_local = host == "localhost"
-    if not is_local:
-        raise HTTPException(status_code=403, detail="Development endpoints are local-only.")
 
 
 router = APIRouter(

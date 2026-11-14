@@ -60,8 +60,25 @@ def error_response(
     )
 
 
+class ApiError(StarletteHTTPException):
+    """An HTTP error with a specific machine-readable ``code`` for clients.
+
+    Example: ``raise ApiError(409, "SESSION_ALREADY_JOINED", "...")``.
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(status_code=status_code, detail=message, headers=headers)
+        self.code = code
+
+
 async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-    code = _HTTP_CODES.get(exc.status_code, f"HTTP_{exc.status_code}")
+    code = getattr(exc, "code", None) or _HTTP_CODES.get(exc.status_code, f"HTTP_{exc.status_code}")
     message = exc.detail if isinstance(exc.detail, str) else "Request failed."
     return error_response(exc.status_code, code, message, headers=getattr(exc, "headers", None))
 

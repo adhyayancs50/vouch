@@ -3,8 +3,16 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import config
 from app.core.config import Settings
 from app.main import create_app
+
+
+@pytest.fixture(autouse=True)
+def _isolated_database(tmp_path, monkeypatch):
+    """Every test gets its own SQLite file; never touch backend/data/vouch.db."""
+    monkeypatch.setattr(config, "DEFAULT_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.delenv("VOUCH_DATABASE_URL", raising=False)
 
 
 @pytest.fixture
