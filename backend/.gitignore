@@ -1,0 +1,5 @@
+# Local SQLite database (interview sessions). Never commit it.
+data/
+*.db
+*.db-journal
+*.sqlite3
