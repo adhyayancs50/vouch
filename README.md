@@ -1,7 +1,6 @@
 # vouch
 
-Privacy-first interview verification system.
-
+Vouch is a privacy-first interview integrity platform that uses a consent-based Chrome extension to record browser activity events during remote interviews, enabling employers to review adherence to predefined AI-use policies through a transparent verification dashboard.
 ## Repository layout
 
 | Path | Purpose |
