@@ -1,4 +1,4 @@
-body { width: 340px; margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; color: #162c35; background: #f6faf9; }
+body { width: 360px; max-height: 550px; overflow-y: auto; margin: 0; padding: 20px; font: 14px/1.5 system-ui, sans-serif; color: #162c35; background: #f6faf9; }
 h1 { margin: 0; }
 .label { color: #48635c; font-weight: 600; }
 label { display: block; }
@@ -7,3 +7,22 @@ button { padding: 9px 12px; border: 0; border-radius: 6px; background: #146653; 
 button:disabled { opacity: .45; cursor: default; }
 pre { max-height: 220px; overflow: auto; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 #status { font-weight: 600; }
+[hidden] { display: none !important; }
+h2 { margin: 0 0 12px; font-size: 19px; line-height: 1.3; overflow-wrap: anywhere; }
+h3 { margin: 16px 0 4px; font-size: 14px; }
+.join-panel { margin: 16px 0 20px; padding: 16px; border: 1px solid #cbded7; border-radius: 10px; background: white; }
+.notice { padding: 10px; border-radius: 6px; background: #edf5f1; }
+.hint { color: #48635c; font-size: 12px; }
+fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+input[type="text"] { box-sizing: border-box; width: 100%; margin: 4px 0 10px; padding: 10px; border: 1px solid #8da79d; border-radius: 6px; background: white; color: inherit; font: inherit; }
+input[aria-invalid="true"] { border-color: #a32e2e; }
+input:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid #146653; outline-offset: 3px; }
+#join-session { width: 100%; margin-top: 8px; }
+#join-status { font-weight: 600; }
+#join-status[data-state="error"] { color: #922d2d; }
+.joined-badge { display: inline-block; margin: 4px 0 12px; padding: 3px 9px; border-radius: 6px; background: #146653; color: white; font-weight: 600; }
+.policy { margin-top: 4px; font-weight: 600; }
+#joined-interview ul { margin: 4px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.secondary { border: 1px solid #146653; background: white; color: #146653; }
+.local-prototype { margin-top: 20px; padding-top: 14px; border-top: 1px solid #cbded7; }
+summary { cursor: pointer; }

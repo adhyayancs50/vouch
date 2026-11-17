@@ -4,14 +4,97 @@ Browser extension for vouch, the privacy-first interview verification system.
 
 ## Status
 
-Local Manifest V3 prototype with explicit consent, Start/Stop controls, and tab-switch recording. A manual backend connection test uses Srihith's confirmed Milestone 3 development API contract. No build step or dependencies required.
+Manifest V3 extension with candidate interview joining, saved interview details and AI-use policy, and a manual backend connection test. Joining does not start monitoring or give consent to tracking. The earlier consent-based local recording prototype is kept in a separate disclosure. No build step or extension dependencies are required.
 
-## Try it
+## Join an interview (Milestone 4)
+
+1. From the project root, start the latest backend on the same computer as Chrome:
+
+   ```sh
+   cd backend
+   python3 -m venv .venv
+   source .venv/bin/activate
+   python3 -m pip install -r requirements.txt
+   VOUCH_ENABLE_DEV_ENDPOINTS=true python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   Leave this terminal running. `/api/sessions` requires the dev flag. See
+   [the session API contract](../backend/API_SESSIONS.md) for backend setup.
+2. Create an interview in the employer dashboard and copy its one-time join code.
+   Alternatively, run this command in another terminal to create a fresh test interview:
+
+   ```sh
+   curl --noproxy '*' --max-time 10 -sS -X POST http://127.0.0.1:8000/api/sessions \
+     -H 'Content-Type: application/json' \
+     -H 'X-Vouch-Dev-Employer: extension-test' \
+     -d '{"title":"Extension join test","candidate_name":"Jordan Lee","policy":{"ai_usage":"PARTIALLY_ALLOWED","allowed_domains":["docs.python.org"],"restricted_domains":["chatgpt.com","claude.ai"]}}'
+   ```
+
+   Copy `candidate_join_code` from that response. Each successful join consumes
+   the code; create a new interview for another successful test.
+3. Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
+   Select the project's **`extension/`** directory, which contains `manifest.json`.
+   If Vouch is already loaded, stop any local recording test, click **Reload**,
+   and close/reopen the popup.
+4. Enter the code and, optionally, your name; click **Join Session**. Case,
+   hyphens, and spaces are handled by the backend. Keep the popup open until
+   confirmation. The candidate request sends no employer header.
+5. Verify **Joined**, the interview title, candidate name when available, the
+   AI-use policy, and both domain lists. An empty list shows **None specified**.
+   Joining sends no recording command and uploads no browser records.
+6. Close/reopen the popup. The saved confirmation should reappear without a
+   network request. This is a local snapshot, not an authenticated resume or
+   a live check of the interview's current backend status.
+
+### Error and privacy checks
+
+- Submit an empty/space-only code: a message appears without making a request.
+  A blank optional name is omitted from the request.
+- Click **Clear saved interview**, then submit the used code: expect the
+  already-used message (409). Clearing details never makes a code reusable.
+- Submit `AAAA-AAAA-AAAA-AAAA`: expect an invalid-code message (401).
+- Expired codes show a new-session instruction (410); validation errors (422),
+  nonlocal requests (403), missing/disabled session endpoints (404), connection
+  failures, and server errors each show a readable message without tracebacks.
+- A 429 disables joining for `Retry-After`, with a countdown. The cooldown is
+  saved across popup closure; both seconds and HTTP-date headers are supported.
+  An absent/invalid header uses a one-minute UI cooldown. The backend enforces
+  its own limit independently.
+- Double clicking/pressing Enter while a join is pending sends one request.
+  No join is retried automatically.
+- If the popup closes, the network fails, or it times out before confirmation
+  is saved, the backend may already have accepted the code. Ask the employer
+  to check; do not assume the same single-use code can be used again.
+
+`chrome.storage.local.joinedInterview` contains only the confirmed session and
+candidate IDs, interview title, candidate name, joined status/time, and policy.
+The plaintext code is never saved or logged and is cleared from the input on
+success or an uncertain network outcome. No token is assumed or saved.
+**Clear saved interview** removes this local snapshot, not the backend session.
+If Chrome storage fails, confirmed details remain visible for the current
+popup and a warning explains that closing it will lose them.
+
+The existing `storage` and loopback host permissions cover joining. No new
+permissions, tracking listeners, automatic monitoring, or resume endpoint were added.
+
+### Automated extension checks
+
+With Node.js available, run from the project root:
+
+```sh
+node --test extension/tests/join-session.test.mjs
+```
+
+These dependency-free controller/DOM tests exercise joining, policy rendering,
+error responses, loading/duplicate protection, rate limits, persistence and
+storage failures, text safety, and coexistence with the existing development tools.
+
+## Try the separate local recording prototype
 
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**, click **Load unpacked**, and select this `extension/` folder.
 3. Open Vouch from Chrome's extensions menu.
-4. Accept the recording notice and click **Start test session**.
+4. Expand **Local recording prototype**, accept its recording notice, and click **Start test session**.
 5. Close the popup and switch tabs a few times.
 6. Reopen Vouch and expand **View local records**.
 7. Click **Stop**, switch tabs again, and confirm the count stays unchanged.
