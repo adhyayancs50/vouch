@@ -6,11 +6,44 @@
     <title>Vouch</title>
     <link rel="stylesheet" href="popup.css">
     <script src="backend-config.js" defer></script>
+    <script src="join-session.js" defer></script>
     <script src="test-event.js" defer></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
     <h1>Vouch</h1>
+    <section class="join-panel" aria-label="Interview joining">
+      <h2>Join your interview</h2>
+      <p class="notice">Joining does not start monitoring or give consent to tracking.</p>
+      <form id="join-form" novalidate>
+        <fieldset id="join-fields" disabled>
+          <label for="join-code">Interview join code</label>
+          <input id="join-code" type="text" required maxlength="64" autocomplete="off" spellcheck="false" aria-describedby="join-help join-status" placeholder="SWY8-BSFT-3XS6-F4GH">
+          <p id="join-help" class="hint">Enter the code from your employer. Codes can only be used once.</p>
+          <label for="candidate-name">Your name <span class="hint">(optional)</span></label>
+          <input id="candidate-name" type="text" maxlength="120" autocomplete="off">
+          <button id="join-session" type="submit" disabled>Join Session</button>
+          <p class="hint">Keep this popup open while joining. If it closes before confirmation, ask the employer to check before trying the code again.</p>
+        </fieldset>
+      </form>
+      <p id="join-status" role="status" aria-live="polite" aria-atomic="true">Loading saved interview details…</p>
+      <p id="join-retry" class="hint" role="timer" aria-live="off" hidden></p>
+      <p id="join-storage-warning" class="notice" role="alert" hidden></p>
+      <section id="joined-interview" aria-labelledby="interview-title" hidden>
+        <p class="joined-badge">Joined</p>
+        <h2 id="interview-title"></h2>
+        <p id="interview-candidate-row">Candidate: <span id="interview-candidate"></span></p>
+        <h3>AI-use policy</h3>
+        <p id="interview-policy" class="policy"></p>
+        <h3>Allowed domains</h3>
+        <ul id="interview-allowed-domains"></ul>
+        <h3>Restricted domains</h3>
+        <ul id="interview-restricted-domains"></ul>
+        <p class="hint">These are saved join details. Reopening the popup shows this confirmation; it does not reconnect or resume an interview.</p>
+        <button id="clear-joined-interview" class="secondary" type="button">Clear saved interview</button>
+        <p class="hint">Clearing removes this browser’s saved details. It does not leave the interview or make its code reusable.</p>
+      </section>
+    </section>
     <section aria-label="Backend connection test">
       <button id="send-test-event">Send Test Event</button>
       <p id="test-event-status" role="status" aria-live="polite">Manual connection test. No browser records are sent.</p>
@@ -19,19 +52,23 @@
         <pre id="test-event-response">No request sent yet.</pre>
       </details>
     </section>
-    <p class="label">Local test session</p>
-    <p>While active, this prototype records tab switches with tab IDs and timestamps. Records stay in this browser. It does not collect URLs, page contents, or keystrokes.</p>
-    <label><input id="consent" type="checkbox"> I agree to this recording for a test session.</label>
-    <p id="status" role="status">Loading…</p>
-    <div class="actions">
-      <button id="start" disabled>Start test session</button>
-      <button id="stop" disabled>Stop</button>
-    </div>
-    <p id="count">Recorded switches: 0</p>
-    <p>Starting a new test clears the previous test’s records. Up to 1,000 switches are kept per test; tracking stops at that limit.</p>
-    <details>
-      <summary>View local records</summary>
-      <pre id="events">[]</pre>
+    <details class="local-prototype">
+      <summary>Local recording prototype</summary>
+      <p class="label">Separate local test session</p>
+      <p>This development tool is separate from joining an interview.</p>
+      <p>While active, this prototype records tab switches with tab IDs and timestamps. Records stay in this browser. It does not collect URLs, page contents, or keystrokes.</p>
+      <label><input id="consent" type="checkbox"> I agree to this recording for a test session.</label>
+      <p id="status" role="status">Loading…</p>
+      <div class="actions">
+        <button id="start" disabled>Start test session</button>
+        <button id="stop" disabled>Stop</button>
+      </div>
+      <p id="count">Recorded switches: 0</p>
+      <p>Starting a new test clears the previous test’s records. Up to 1,000 switches are kept per test; tracking stops at that limit.</p>
+      <details>
+        <summary>View local records</summary>
+        <pre id="events">[]</pre>
+      </details>
     </details>
   </body>
 </html>
