@@ -14,7 +14,7 @@ export function SessionEmptyState() {
           <span className="floating-icon"><Icon name="sessions" /></span>
         </div>
         <h3 id="empty-heading">A little clarity starts here.</h3>
-        <p>No interview sessions have been created yet.<br className="desktop-break" /> This is where you’ll manage your interviews and review session reports.</p>
+        <p>No interview sessions have been created yet.<br className="desktop-break" /> Select Create Interview to set a policy and invite your first candidate.</p>
         <a className="text-link" href="#about">Get to know Vouch <Icon name="arrow" /></a>
       </div>
       <div className="panel-note"><Icon name="shield" /><span>Designed around transparency. Built with candidate privacy in mind.</span></div>
