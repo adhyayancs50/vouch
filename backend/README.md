@@ -16,6 +16,9 @@ Development mode (off by default) adds:
 - `/api/sessions`: interview sessions and candidate join codes stored in SQLite (Milestone 4).
   See [Interview sessions](#interview-sessions-development-only) and the full contract in
   [`API_SESSIONS.md`](API_SESSIONS.md).
+- Candidate credentials, consent, monitoring start/stop and persistent browser events (Milestone 5).
+  See [Monitoring](#consent-monitoring-and-browser-events-development-only) and
+  [`API_MONITORING.md`](API_MONITORING.md).
 
 There is **no production authentication** yet, so none of these routes may be enabled outside
 local development.
@@ -23,10 +26,9 @@ local development.
 ### Not yet implemented
 
 - Employer authentication (a development header stands in for it)
-- Candidate tokens, session start/consent, completion
+- Session completion, reports and SHA-256 integrity verification
 - Database migrations (tables are created on startup)
-- Activity event submission and retrieval for real sessions
-- Session reports and SHA-256 integrity verification
+- HTTPS, token refresh, data retention and deletion
 
 ## Layout
 
@@ -41,8 +43,10 @@ app/
   db/__init__.py       SQLAlchemy engine, UTC datetimes, table creation
   dev/events.py        POST/GET /api/dev/events (dev mode only, in-memory)
   sessions/            /api/sessions: models, schemas, join codes, routes (dev mode only)
+  monitoring/          candidate tokens, consent, monitoring state, events (dev mode only)
 data/vouch.db          local SQLite database (gitignored, created in dev mode)
 API_SESSIONS.md        session API contract for the dashboard and extension
+API_MONITORING.md      consent, monitoring and events contract for the extension and dashboard
 tests/                 pytest suite
 SECURITY_NOTES_DRAFT.md  draft event/consent/validation rules for review with security
 ```
@@ -97,6 +101,8 @@ All settings are optional environment variables; see [`.env.example`](.env.examp
 | `VOUCH_EXTENSION_ORIGINS` | *(empty)* | Exact `chrome-extension://<id>` origins allowed by CORS, dev mode only (wildcards rejected) |
 | `VOUCH_DATABASE_URL` | `sqlite:///<backend>/data/vouch.db` | SQLAlchemy database URL (used in dev mode) |
 | `VOUCH_JOIN_CODE_TTL_HOURS` | `72` | Hours a candidate join code stays valid (1–720) |
+| `VOUCH_CANDIDATE_TOKEN_TTL_HOURS` | `24` | Hours a candidate token stays valid (1–168) |
+| `VOUCH_CONSENT_VERSION` | `2026-11-monitoring-v1` | Disclosure version candidates must consent to |
 
 To use a local `.env` file: `cp .env.example .env`, then `uvicorn app.main:app --reload --env-file .env`.
 Never commit `.env`.
@@ -221,6 +227,30 @@ curl -s http://127.0.0.1:8000/api/sessions -H "X-Vouch-Dev-Employer: acme-hr"
 curl -s -X POST http://127.0.0.1:8000/api/sessions/join -H "Content-Type: application/json" \
   -d '{"join_code":"<code from the create response>"}'
 ```
+
+## Consent, monitoring and browser events (development only)
+
+Milestone 5. Full contract: [`API_MONITORING.md`](API_MONITORING.md).
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/sessions/{id}/candidate` | Candidate token | Own consent and monitoring state |
+| `POST` | `/api/sessions/{id}/consent` | Candidate token | `GRANTED`, `DECLINED` or `WITHDRAWN` |
+| `POST` | `/api/sessions/{id}/monitoring/start` | Candidate token | `NOT_STARTED` → `ACTIVE` (needs consent) |
+| `POST` | `/api/sessions/{id}/monitoring/stop` | Candidate token | `ACTIVE` → `STOPPED` (final) |
+| `POST` | `/api/sessions/{id}/events` | Candidate token | Store `TAB_SWITCH` / `WEBSITE_NAVIGATION` events (hostname only) |
+| `GET` | `/api/sessions/{id}/monitoring` | Employer header | Consent history and monitoring status |
+| `GET` | `/api/sessions/{id}/events` | Employer header | Stored events, ordered by client sequence |
+
+- The join response now includes `candidate_token` (256 random bits, shown once, stored as a
+  SHA-256 hash, 24-hour lifetime). It is sent as `Authorization: Bearer`. The URL's session must
+  match the token's; client-sent `session_id`/`candidate_id` are never trusted.
+- Joining is not consent. Monitoring starts only after explicit `GRANTED` consent to the current
+  disclosure version, and `STOPPED` (by the candidate or by withdrawing consent) is final.
+- Events are accepted only while `ACTIVE`, validated strictly (no URLs, paths, titles), de-duplicated
+  by `client_event_id`, and limited to 50 per request, 64 KB, 600 per minute, 20,000 per session.
+- **After pulling this change, delete `data/vouch.db`.** The backend refuses to start with a
+  Milestone 4 database.
 
 ## Errors
 

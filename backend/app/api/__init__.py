@@ -4,7 +4,8 @@
 
 Development mode (``settings.enable_dev_endpoints``) registers:
 - ``/api/dev/events``: in-memory extension test events (Milestone 3)
-- ``/api/sessions``: interview sessions in SQLite (Milestone 4)
+- ``/api/sessions``: interview sessions in SQLite (Milestone 4), plus candidate
+  consent, monitoring and browser events (Milestone 5)
 
 Without it those routes do not exist (404). They have no production
 authentication yet, so they must not be enabled outside local development.
@@ -38,3 +39,9 @@ def register_routers(app: FastAPI, settings: Settings) -> None:
             settings.join_max_failed_attempts, settings.join_attempt_window_seconds
         )
         app.include_router(session_routes.router, prefix=API_PREFIX)
+
+        from app.monitoring import routes as monitoring_routes
+        from app.monitoring.limits import EventRateLimiter
+
+        app.state.event_limiter = EventRateLimiter(settings.max_events_per_minute, 60)
+        app.include_router(monitoring_routes.router, prefix=API_PREFIX)

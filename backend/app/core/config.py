@@ -28,6 +28,15 @@ DEFAULT_DATABASE_URL = "sqlite:///" + str(
 DEFAULT_JOIN_CODE_TTL_HOURS = 72
 MAX_JOIN_CODE_TTL_HOURS = 24 * 30
 
+# Candidate credentials (issued at join) expire this many hours after joining.
+DEFAULT_CANDIDATE_TOKEN_TTL_HOURS = 24
+MAX_CANDIDATE_TOKEN_TTL_HOURS = 24 * 7
+
+# Version of the monitoring disclosure a candidate must consent to. Change it when the
+# disclosure text the extension shows changes; candidates then have to consent again.
+DEFAULT_CONSENT_VERSION = "2026-11-monitoring-v1"
+_CONSENT_VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"", "0", "false", "no", "off"}
 
@@ -65,14 +74,13 @@ def _parse_bool(name: str, raw: str | None) -> bool:
     raise ValueError(f"{name} must be true or false; got {raw!r}.")
 
 
-def _parse_ttl_hours(raw: str | None) -> int:
+def _parse_hours(name: str, raw: str | None, default: int) -> int:
     if raw is None or not raw.strip():
-        return DEFAULT_JOIN_CODE_TTL_HOURS
+        return default
     try:
-        hours = int(raw.strip())
+        return int(raw.strip())
     except ValueError as exc:
-        raise ValueError(f"VOUCH_JOIN_CODE_TTL_HOURS must be a whole number; got {raw!r}.") from exc
-    return hours
+        raise ValueError(f"{name} must be a whole number; got {raw!r}.") from exc
 
 
 @dataclass(frozen=True)
@@ -92,12 +100,31 @@ class Settings:
     # Failed candidate join attempts allowed per client within the window before HTTP 429.
     join_max_failed_attempts: int = 10
     join_attempt_window_seconds: int = 15 * 60
+    # Milestone 5: candidate credentials, consent and browser activity events.
+    candidate_token_ttl_hours: int = DEFAULT_CANDIDATE_TOKEN_TTL_HOURS
+    consent_version: str = DEFAULT_CONSENT_VERSION
+    max_events_per_request: int = 50
+    max_event_request_bytes: int = 64 * 1024
+    max_events_per_minute: int = 600
+    max_events_per_session: int = 20_000
+    # Allowed client clock difference when checking event timestamps.
+    event_clock_skew_seconds: int = 300
 
     def __post_init__(self) -> None:
         if not 1 <= self.join_code_ttl_hours <= MAX_JOIN_CODE_TTL_HOURS:
             raise ValueError(
                 f"VOUCH_JOIN_CODE_TTL_HOURS must be between 1 and {MAX_JOIN_CODE_TTL_HOURS}; "
                 f"got {self.join_code_ttl_hours}."
+            )
+        if not 1 <= self.candidate_token_ttl_hours <= MAX_CANDIDATE_TOKEN_TTL_HOURS:
+            raise ValueError(
+                "VOUCH_CANDIDATE_TOKEN_TTL_HOURS must be between 1 and "
+                f"{MAX_CANDIDATE_TOKEN_TTL_HOURS}; got {self.candidate_token_ttl_hours}."
+            )
+        if not _CONSENT_VERSION.fullmatch(self.consent_version):
+            raise ValueError(
+                "VOUCH_CONSENT_VERSION must be 1-64 characters: letters, digits, '.', '_' or '-'; "
+                f"got {self.consent_version!r}."
             )
         if self.enable_dev_endpoints and self.environment != "development":
             raise ValueError(
@@ -135,5 +162,13 @@ def get_settings() -> Settings:
         ),
         extension_origins=_parse_extension_origins(os.getenv("VOUCH_EXTENSION_ORIGINS")),
         database_url=os.getenv("VOUCH_DATABASE_URL", "").strip() or None,
-        join_code_ttl_hours=_parse_ttl_hours(os.getenv("VOUCH_JOIN_CODE_TTL_HOURS")),
+        join_code_ttl_hours=_parse_hours(
+            "VOUCH_JOIN_CODE_TTL_HOURS", os.getenv("VOUCH_JOIN_CODE_TTL_HOURS"), DEFAULT_JOIN_CODE_TTL_HOURS
+        ),
+        candidate_token_ttl_hours=_parse_hours(
+            "VOUCH_CANDIDATE_TOKEN_TTL_HOURS",
+            os.getenv("VOUCH_CANDIDATE_TOKEN_TTL_HOURS"),
+            DEFAULT_CANDIDATE_TOKEN_TTL_HOURS,
+        ),
+        consent_version=os.getenv("VOUCH_CONSENT_VERSION", "").strip() or DEFAULT_CONSENT_VERSION,
     )
