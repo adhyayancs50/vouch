@@ -101,6 +101,14 @@ NOT_STARTED --start (needs GRANTED consent)--> ACTIVE --stop / withdraw--> STOPP
 Withdrawing consent while `ACTIVE` sets `STOPPED` with `stop_reason: CONSENT_WITHDRAWN`.
 Events are accepted **only** while `ACTIVE`.
 
+Event submission, stop, and consent withdrawal each run in a SQLite write transaction that takes its reserved lock at `BEGIN` (`BEGIN IMMEDIATE`). Those three cannot be inside a write transaction at the same time. `received_at` and `monitoring_stopped_at` are read only after the statement that claims the row has returned, still before commit.
+
+The cutoff is that commit order, not which HTTP request started first:
+
+- An event transaction that commits while monitoring is still `ACTIVE` is kept. Its `received_at` is earlier than the `stopped_at` of a stop or withdrawal that commits afterward.
+- Once the stop or withdrawal transaction has committed, a later event transaction does not store those events. It returns `409 MONITORING_NOT_ACTIVE`.
+- An overlapping request does not change timestamps of a transaction that already committed.
+
 ## Candidate endpoints (Justin)
 
 All need `Authorization: Bearer <candidate_token>`.
