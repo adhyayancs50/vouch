@@ -72,15 +72,23 @@ class ApiError(StarletteHTTPException):
         code: str,
         message: str,
         headers: dict[str, str] | None = None,
+        details: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=message, headers=headers)
         self.code = code
+        self.details = details
 
 
 async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
     code = getattr(exc, "code", None) or _HTTP_CODES.get(exc.status_code, f"HTTP_{exc.status_code}")
     message = exc.detail if isinstance(exc.detail, str) else "Request failed."
-    return error_response(exc.status_code, code, message, headers=getattr(exc, "headers", None))
+    return error_response(
+        exc.status_code,
+        code,
+        message,
+        details=getattr(exc, "details", None),
+        headers=getattr(exc, "headers", None),
+    )
 
 
 async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:

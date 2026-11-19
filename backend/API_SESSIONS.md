@@ -183,12 +183,21 @@ Send the code only in the request body, never in the URL.
   },
   "candidate_id": "cand_e3668da15ce7439bb5bc1b790ec81db7",
   "candidate_name": "Jordan Lee",
-  "joined_at": "2026-11-14T05:13:32.404724Z"
+  "joined_at": "2026-11-14T05:13:32.404724Z",
+  "candidate_token": "vct_3q2-7oV1v8kQ9yZbW5mN0aT4cR6dE8fG1hJ2kL3mN4o",
+  "token_type": "Bearer",
+  "candidate_token_expires_at": "2026-11-15T05:13:32.404724Z",
+  "required_consent_version": "2026-11-monitoring-v1"
 }
 ```
 
-Store `session_id` and `candidate_id` in `chrome.storage.local`; later milestones will use them.
-Show `policy` to the candidate before consent (doc 04, Feature 6.3).
+**Milestone 5 added the last four fields** (the rest is unchanged). `candidate_token` is the
+candidate's credential for consent, monitoring and events: it is shown only in this response and
+cannot be recovered. Store it with `session_id` in `chrome.storage.local`, send it as
+`Authorization: Bearer <token>`, and never put it in a URL or log. See
+[`API_MONITORING.md`](API_MONITORING.md).
+
+Show `policy` to the candidate before consent (doc 04, Feature 6.3). Joining is not consent.
 
 **Errors:**
 
@@ -201,8 +210,8 @@ Show `policy` to the candidate before consent (doc 04, Feature 6.3).
 | `422` | `VALIDATION_ERROR` | Missing/empty `join_code`, extra fields | Fix the request |
 
 **Codes are single-use.** Once a candidate joins, the same code returns `409`, even for the same
-candidate. To test again, create a new session. Re-joining with a candidate credential is planned
-for the session-start milestone.
+candidate. To test again, create a new session. There is deliberately no way to re-issue a
+candidate token.
 
 ## Join codes
 
@@ -225,5 +234,6 @@ endpoints. Dashboard: no backend config needed beyond the default CORS origins.
 
 ## Not implemented yet
 
-Production login, candidate tokens, session start/consent (`ACTIVE`), activity events for real
-sessions, completion, reports, regenerating a join code, and deleting sessions.
+Production login, completion, reports, regenerating a join code, and deleting sessions.
+Candidate tokens, consent, monitoring and activity events arrived in Milestone 5:
+see [`API_MONITORING.md`](API_MONITORING.md).

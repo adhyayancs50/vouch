@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session as DbSession
 from app.core.access import require_dev_employer, require_local_client
 from app.core.errors import ApiError
 from app.db import get_db, utcnow
+from app.monitoring import tokens
 from app.sessions import join_codes
 from app.sessions.models import InterviewSession, SessionCandidate, SessionStatus
 from app.sessions.schemas import (
@@ -166,11 +167,15 @@ def join_session(
         raise ApiError(
             409, "SESSION_ALREADY_JOINED", "This session has already been joined. Ask the employer for a new session."
         )
+    settings = request.app.state.settings
+    candidate_token = tokens.generate_candidate_token()
     candidate = SessionCandidate(
         id=f"cand_{uuid.uuid4().hex}",
         session_id=session.id,
         display_name=payload.candidate_name or session.candidate_name,
         joined_at=now,
+        token_hash=tokens.hash_candidate_token(candidate_token),
+        token_expires_at=now + timedelta(hours=settings.candidate_token_ttl_hours),
     )
     db.add(candidate)
     db.commit()
@@ -185,6 +190,9 @@ def join_session(
         candidate_id=candidate.id,
         candidate_name=candidate.display_name,
         joined_at=now,
+        candidate_token=candidate_token,  # shown once; never logged
+        candidate_token_expires_at=candidate.token_expires_at,
+        required_consent_version=settings.consent_version,
     )
 
 

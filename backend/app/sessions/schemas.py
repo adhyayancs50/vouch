@@ -113,3 +113,9 @@ class JoinResponse(BaseModel):
     candidate_id: str
     candidate_name: str | None
     joined_at: datetime
+    # Milestone 5: the candidate credential. Returned ONLY here, once; the server keeps a hash.
+    candidate_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    candidate_token_expires_at: datetime
+    # The disclosure version the candidate must consent to (POST .../consent).
+    required_consent_version: str

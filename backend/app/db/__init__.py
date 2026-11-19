@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Request
-from sqlalchemy import DateTime, Engine, create_engine, event
+from sqlalchemy import DateTime, Engine, create_engine, event, inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.types import TypeDecorator
@@ -65,10 +65,31 @@ def create_db_engine(database_url: str) -> Engine:
 
 def init_db(engine: Engine) -> sessionmaker[Session]:
     # Import models so their tables are registered on Base.metadata.
+    from app.monitoring import models as monitoring_models  # noqa: F401
     from app.sessions import models  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _check_schema_is_current(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+class OutdatedDatabaseError(RuntimeError):
+    pass
+
+
+def _check_schema_is_current(engine: Engine) -> None:
+    """Fail at startup if an older database is missing columns (no migrations yet)."""
+    inspector = inspect(engine)
+    missing = []
+    for table in Base.metadata.sorted_tables:
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        missing += [f"{table.name}.{c.name}" for c in table.columns if c.name not in existing]
+    if missing:
+        raise OutdatedDatabaseError(
+            f"The database at {engine.url.render_as_string(hide_password=True)} was created by an "
+            f"older backend version and is missing: {', '.join(missing)}. There are no migrations "
+            "yet: stop the server, delete backend/data/vouch.db (development data only), and start again."
+        )
 
 
 def get_db(request: Request) -> Iterator[Session]:
