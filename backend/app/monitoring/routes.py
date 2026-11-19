@@ -13,6 +13,13 @@ Monitoring   start      NOT_STARTED -> ACTIVE, needs current GRANTED consent; re
                         409 once STOPPED (never restarts)
              stop       ACTIVE -> STOPPED; repeat is a no-op; 409 if NOT_STARTED
 Events       accepted only while ACTIVE
+
+SQLite write transactions begin with BEGIN IMMEDIATE, so event submission, stop,
+and consent withdrawal cannot hold a write lock at the same time. Cutoff clocks
+(``received_at``, ``monitoring_stopped_at``) are read only after the statement
+that claims the transition has returned. An event whose transaction commits
+before that claim is kept. Once the stop or withdrawal commits, a later event
+transaction sees STOPPED and stores nothing.
 """
 
 from __future__ import annotations
@@ -122,7 +129,6 @@ def record_consent(
     required = request.app.state.settings.consent_version
     current = candidate.consent_status
     decision = payload.decision
-    now = utcnow()
 
     if decision is ConsentDecision.GRANTED:
         if candidate.monitoring_status is MonitoringStatus.STOPPED:
@@ -157,26 +163,36 @@ def record_consent(
         new_status = ConsentStatus.WITHDRAWN
 
     if changed:
-        values = {
-            "consent_status": new_status,
-            "consent_version": payload.consent_version or candidate.consent_version,
-            "consent_updated_at": now,
-        }
-        db.execute(update(SessionCandidate).where(SessionCandidate.id == candidate.id).values(**values))
+        # Claim ACTIVE -> STOPPED before reading the clock. The timestamp is not
+        # bound until this update returns, so it cannot be earlier than an event
+        # transaction that already committed.
+        stopped_monitoring = False
         if decision is ConsentDecision.WITHDRAWN:
-            # No tracking without consent: withdrawing ends ACTIVE monitoring for good.
-            db.execute(
-                update(SessionCandidate)
-                .where(
-                    SessionCandidate.id == candidate.id,
-                    SessionCandidate.monitoring_status == MonitoringStatus.ACTIVE,
-                )
-                .values(
-                    monitoring_status=MonitoringStatus.STOPPED,
-                    monitoring_stopped_at=now,
-                    monitoring_stop_reason=StopReason.CONSENT_WITHDRAWN,
-                )
+            stopped_monitoring = (
+                db.execute(
+                    update(SessionCandidate)
+                    .where(
+                        SessionCandidate.id == candidate.id,
+                        SessionCandidate.monitoring_status == MonitoringStatus.ACTIVE,
+                    )
+                    .values(
+                        monitoring_status=MonitoringStatus.STOPPED,
+                        monitoring_stop_reason=StopReason.CONSENT_WITHDRAWN,
+                    )
+                ).rowcount
+                == 1
             )
+        now = utcnow()
+        db.execute(
+            update(SessionCandidate)
+            .where(SessionCandidate.id == candidate.id)
+            .values(
+                consent_status=new_status,
+                consent_version=payload.consent_version or candidate.consent_version,
+                consent_updated_at=now,
+                **({"monitoring_stopped_at": now} if stopped_monitoring else {}),
+            )
+        )
         db.add(
             ConsentRecord(
                 session_id=candidate.session_id,
@@ -243,6 +259,9 @@ def stop_monitoring(
 ) -> CandidateStateChange:
     if candidate.monitoring_status is MonitoringStatus.NOT_STARTED:
         raise ApiError(409, "MONITORING_NOT_STARTED", "Monitoring has not started, so there is nothing to stop.")
+    # Claim the transition before reading the clock. utcnow() as an argument of
+    # this update would run before SQLite grants the write lock, so a committed
+    # event could receive a later received_at than stopped_at.
     stopped = db.execute(
         update(SessionCandidate)
         .where(
@@ -251,13 +270,17 @@ def stop_monitoring(
         )
         .values(
             monitoring_status=MonitoringStatus.STOPPED,
-            monitoring_stopped_at=utcnow(),
             monitoring_stop_reason=StopReason.CANDIDATE_STOPPED,
         )
     ).rowcount
-    db.commit()
     if stopped == 1:
+        db.execute(
+            update(SessionCandidate)
+            .where(SessionCandidate.id == candidate.id)
+            .values(monitoring_stopped_at=utcnow())
+        )
         logger.info("Candidate %s monitoring stopped", candidate.id)
+    db.commit()
     return CandidateStateChange(**_candidate_state(_reload(db, candidate), request), changed=stopped == 1)
 
 
@@ -307,7 +330,36 @@ async def submit_events(
             f"(it is {candidate.monitoring_status.value}).",
         )
 
+    retry_after = request.app.state.event_limiter.try_consume(candidate.id, len(batch.events))
+    if retry_after is not None:
+        raise ApiError(
+            429,
+            "RATE_LIMITED",
+            f"Too many events. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    # Claim the ACTIVE row before reading the clock or inserting. A stop or
+    # withdrawal that already committed makes this match nothing, and this
+    # transaction then stores no events.
+    locked = db.execute(
+        update(SessionCandidate)
+        .where(
+            SessionCandidate.id == candidate.id,
+            SessionCandidate.monitoring_status == MonitoringStatus.ACTIVE,
+        )
+        .values(monitoring_status=MonitoringStatus.ACTIVE)
+    ).rowcount
+    if locked != 1:
+        db.rollback()
+        raise ApiError(409, "MONITORING_NOT_ACTIVE", "Monitoring stopped before these events were saved.")
+
     now = utcnow()
+    db.execute(
+        update(SessionCandidate)
+        .where(SessionCandidate.id == candidate.id)
+        .values(last_event_received_at=now)
+    )
     skew = timedelta(seconds=settings.event_clock_skew_seconds)
     earliest = candidate.monitoring_started_at - skew
     latest = now + skew
@@ -321,35 +373,13 @@ async def submit_events(
         if not earliest <= e.occurred_at <= latest
     ]
     if bad:
+        db.rollback()
         raise ApiError(
             422,
             "EVENT_TIMESTAMP_OUT_OF_RANGE",
             "Some events have timestamps before monitoring started or in the future. Check the device clock.",
             details=bad,
         )
-
-    retry_after = request.app.state.event_limiter.try_consume(candidate.id, len(batch.events))
-    if retry_after is not None:
-        raise ApiError(
-            429,
-            "RATE_LIMITED",
-            f"Too many events. Try again in {retry_after} seconds.",
-            headers={"Retry-After": str(retry_after)},
-        )
-
-    # Take SQLite's write lock first, re-checking ACTIVE, so a concurrent stop or
-    # withdrawal cannot slip in between the check and the insert.
-    locked = db.execute(
-        update(SessionCandidate)
-        .where(
-            SessionCandidate.id == candidate.id,
-            SessionCandidate.monitoring_status == MonitoringStatus.ACTIVE,
-        )
-        .values(last_event_received_at=now)
-    ).rowcount
-    if locked != 1:
-        db.rollback()
-        raise ApiError(409, "MONITORING_NOT_ACTIVE", "Monitoring stopped before these events were saved.")
 
     ids = [e.client_event_id for e in batch.events]
     existing = {

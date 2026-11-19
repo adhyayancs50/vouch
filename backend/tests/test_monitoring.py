@@ -644,31 +644,56 @@ def test_session_event_cap(db_path):
         assert full.status_code == 409 and error_code(full) == "EVENT_LIMIT_REACHED"
 
 
-def test_stop_racing_with_event_submission(db_path):
-    """However submissions and a stop interleave, nothing is stored after STOPPED."""
-    with TestClient(create_app(make_settings(db_path)), client=LOCAL) as api:
-        joined = active(api)
-        barrier = threading.Barrier(9)
-        statuses = []
+def _race_cutoff(api, joined, finisher):
+    """Run event submissions against one finishing call. No sleeps: a barrier releases every thread together."""
+    workers = 8
+    barrier = threading.Barrier(workers + 1)
+    statuses = []
 
-        def submit(i):
-            barrier.wait()
-            statuses.append(send(api, joined, [event(i)]).status_code)
+    def submit(i):
+        payload = event(i)
+        barrier.wait()
+        statuses.append(send(api, joined, [payload]).status_code)
 
-        def do_stop():
-            barrier.wait()
-            stop(api, joined)
+    def finish():
+        barrier.wait()
+        finisher()
 
-        threads = [threading.Thread(target=submit, args=(i,)) for i in range(8)] + [threading.Thread(target=do_stop)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        stopped_at = monitoring_view(api, joined).json()["monitoring"]["stopped_at"]
-        listed = events_view(api, joined).json()
+    threads = [threading.Thread(target=submit, args=(i,)) for i in range(workers)] + [threading.Thread(target=finish)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    view = monitoring_view(api, joined).json()["monitoring"]
+    listed = events_view(api, joined).json()
     assert set(statuses) <= {200, 409}
     assert listed["total_events"] == statuses.count(200)
-    assert all(e["received_at"] <= stopped_at for e in listed["events"])
+    assert view["status"] == "STOPPED"
+    # Commit order, not request-start order: a stored event was committed before the stop.
+    assert all(item["received_at"] <= view["stopped_at"] for item in listed["events"])
+
+
+def test_stop_racing_with_event_submission(db_path):
+    """A stored event's received_at is never later than stopped_at, over repeated interleavings."""
+    with TestClient(create_app(make_settings(db_path)), client=LOCAL) as api:
+        for _ in range(20):
+            joined = active(api)
+            _race_cutoff(api, joined, lambda joined=joined: stop(api, joined))
+
+
+def test_withdrawal_racing_with_event_submission(db_path):
+    """Withdrawing consent uses the same cutoff as an explicit stop."""
+    with TestClient(create_app(make_settings(db_path)), client=LOCAL) as api:
+        for _ in range(20):
+            joined = active(api)
+
+            def withdraw(joined=joined):
+                response = consent(api, joined, "WITHDRAWN", version=None)
+                assert response.status_code == 200
+
+            _race_cutoff(api, joined, withdraw)
+            view = monitoring_view(api, joined).json()["monitoring"]
+            assert view["stop_reason"] == "CONSENT_WITHDRAWN"
 
 
 # --- Part 5: employer visibility ------------------------------------------------

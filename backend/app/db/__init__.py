@@ -48,6 +48,8 @@ def create_db_engine(database_url: str) -> Engine:
     connect_args = {}
     if url.get_backend_name() == "sqlite":
         connect_args["check_same_thread"] = False
+        # Wait for another request's write transaction instead of failing immediately.
+        connect_args["timeout"] = 30
         if url.database and url.database != ":memory:":
             Path(url.database).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(database_url, connect_args=connect_args)
@@ -56,9 +58,17 @@ def create_db_engine(database_url: str) -> Engine:
 
         @event.listens_for(engine, "connect")
         def _sqlite_pragmas(dbapi_connection, _record) -> None:  # noqa: ANN001
+            # SQLAlchemy emits BEGIN itself. A reserved lock at BEGIN, not at the
+            # first write, is what orders monitoring cutoff timestamps: the clock
+            # is read only while this transaction already excludes other writers.
+            dbapi_connection.isolation_level = None
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
+
+        @event.listens_for(engine, "begin")
+        def _begin_immediate(conn) -> None:  # noqa: ANN001
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
 
     return engine
 
