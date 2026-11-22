@@ -6,7 +6,7 @@ import vm from "node:vm";
 const source = await readFile(new URL("../join-session.js", import.meta.url), "utf8");
 const config = await readFile(new URL("../backend-config.js", import.meta.url), "utf8");
 const testEventSource = await readFile(new URL("../test-event.js", import.meta.url), "utf8");
-const legacySource = await readFile(new URL("../popup.js", import.meta.url), "utf8");
+const monitoringSource = await readFile(new URL("../popup.js", import.meta.url), "utf8");
 const html = await readFile(new URL("../popup.html", import.meta.url), "utf8");
 const confirmation = {
   success: true,
@@ -17,7 +17,24 @@ const confirmation = {
   candidate_id: "cand_e3668da15ce7439bb5bc1b790ec81db7",
   candidate_name: "Jordan Lee",
   joined_at: "2026-11-14T05:13:32.404724Z",
+  candidate_token: "vct_one_time_test_credential",
+  token_type: "Bearer",
+  candidate_token_expires_at: "2026-11-18T12:00:00Z",
+  required_consent_version: "2026-11-monitoring-v1",
 };
+
+function workerView(joined, consent = "NONE", monitoring = "NOT_STARTED", fields = {}) {
+  return {
+    state: {
+      session_id: joined.session_id, candidate_id: joined.candidate_id, title: joined.title, policy: joined.policy,
+      consent: { status: consent, consent_version: consent === "GRANTED" ? confirmation.required_consent_version : null,
+        required_version: confirmation.required_consent_version },
+      monitoring: { status: monitoring },
+    },
+    collecting: monitoring === "ACTIVE", pending: null, needsCode: false, canClear: monitoring !== "ACTIVE",
+    message: "", ...fields,
+  };
+}
 
 class Element {
   value = "";
@@ -46,6 +63,8 @@ async function popup(options = {}) {
   const requests = [];
   const writes = [];
   const runtimeCalls = [];
+  const accessLevels = [];
+  let receiveMessage;
   const timers = new Map();
   let now = Date.parse("2026-11-17T12:00:00Z");
   let nextTimer = 1;
@@ -56,6 +75,10 @@ async function popup(options = {}) {
     },
     chrome: {
       storage: { local: {
+        setAccessLevel: async settings => {
+          accessLevels.push(settings.accessLevel);
+          if (options.accessFails) throw new Error("storage access unavailable");
+        },
         get: async () => { if (options.getFails) throw new Error("storage unavailable"); return structuredClone(stored); },
         set: async value => {
           if (options.setFails) throw new Error("storage full");
@@ -65,7 +88,26 @@ async function popup(options = {}) {
         },
         remove: async key => { if (options.removeFails) throw new Error("storage unavailable"); delete stored[key]; },
       }, onChanged: { addListener() {} } },
-      runtime: { sendMessage: value => { runtimeCalls.push(value); throw new Error("Joining must not start tracking."); } },
+      runtime: {
+        id: "vouch-test",
+        onMessage: { addListener(handler) { receiveMessage = handler; } },
+        sendMessage: async value => {
+          const message = JSON.parse(JSON.stringify(value));
+          runtimeCalls.push(message);
+          if (options.worker) return options.worker(message, stored);
+          if (value.action === "clear") {
+            if (options.removeFails) throw new Error("storage unavailable");
+            delete stored.joinedInterview;
+            delete stored.candidateCredential;
+            return { cleared: true };
+          }
+          assert.equal(value.action, "state");
+          return stored.candidateCredential ? workerView(stored.joinedInterview) : {
+            state: null, collecting: false, pending: null, needsCode: true, canClear: true,
+            message: "Ask your employer for a new interview code.",
+          };
+        },
+      },
       tabs: new Proxy({}, { get() { throw new Error("Joining must not access browser tabs."); } }),
     },
     URL, AbortController,
@@ -73,19 +115,24 @@ async function popup(options = {}) {
     setTimeout: (callback, delay) => { const id = nextTimer++; timers.set(id, { callback, due: now + delay }); return id; },
     clearTimeout: id => timers.delete(id),
     fetch: async (url, request) => {
+      assert.deepEqual(accessLevels, ["TRUSTED_CONTEXTS"]);
       requests.push({ url: String(url), ...request });
       return options.fetch ? options.fetch(url, request) : reply(200, confirmation);
     },
   });
   vm.runInContext(config, context);
+  vm.runInContext(monitoringSource, context);
   vm.runInContext(source, context);
   if (options.includeDevelopmentTools) {
     vm.runInContext(testEventSource, context);
-    vm.runInContext(legacySource, context);
   }
   await flush();
   return {
-    elements, stored, requests, writes, runtimeCalls,
+    elements, stored, requests, writes, runtimeCalls, accessLevels,
+    click: id => elements.get(id).listeners.click(),
+    push(view, sessionId = confirmation.session_id, sender = { id: "vouch-test" }) {
+      receiveMessage({ action: "monitoringUpdate", sessionId, view }, sender);
+    },
     element: id => elements.get(id),
     async submit(code = "SWY8-BSFT-3XS6-F4GH", name = "") {
       elements.get("join-code").value = code;
@@ -120,7 +167,7 @@ test("does not fetch or start monitoring when opened; rejects blank code locally
   assert.deepEqual(app.runtimeCalls, []);
 });
 
-test("sends only the code and optional trimmed name; displays policy and saves no credential", async () => {
+test("sends only the code and optional trimmed name; saves the credential privately with the interview", async () => {
   const original = { session: { active: false }, events: [{ event_type: "TAB_SWITCH" }] };
   const app = await popup({ saved: original });
   await app.submit(" swy8 bsft 3xs6 f4gh ", " Jordan Lee ");
@@ -146,7 +193,18 @@ test("sends only the code and optional trimmed name; displays policy and saves n
   assert.equal(JSON.stringify(app.stored).includes("join_code"), false);
   assert.equal(JSON.stringify(app.stored.session), JSON.stringify(original.session));
   assert.equal(JSON.stringify(app.stored.events), JSON.stringify(original.events));
-  assert.deepEqual(app.runtimeCalls, []);
+  assert.deepEqual(app.runtimeCalls, [{ action: "state", sessionId: confirmation.session_id }]);
+  assert.deepEqual(app.stored.candidateCredential, {
+    session_id: confirmation.session_id,
+    candidate_id: confirmation.candidate_id,
+    candidate_token: confirmation.candidate_token,
+    token_type: "Bearer",
+    candidate_token_expires_at: confirmation.candidate_token_expires_at,
+    required_consent_version: confirmation.required_consent_version,
+  });
+  assert.deepEqual(Object.keys(app.writes[0]).sort(), ["candidateCredential", "joinedInterview"]);
+  assert.equal(app.stored.joinedInterview.candidate_token, undefined);
+  assert.equal([...app.elements.values()].some(item => item.textContent.includes(confirmation.candidate_token)), false);
   await app.submit();
   assert.equal(app.requests.length, 1, "Never repeat a successful join");
 });
@@ -224,16 +282,18 @@ test("accepts an HTTP-date Retry-After and provides a fallback for missing heade
   }
 });
 
-test("restores a saved confirmation without any resume or join request", async () => {
+test("restores a saved confirmation, refreshes worker state and clears through the worker", async () => {
   const first = await popup();
   await first.submit();
   const reopened = await popup({ saved: first.stored });
   assert.equal(reopened.requests.length, 0);
   assert.equal(reopened.element("interview-title").textContent, confirmation.title);
   assert.equal(reopened.element("joined-interview").hidden, false);
-  assert.match(reopened.element("join-status").textContent, /saved join confirmation/);
+  assert.deepEqual(reopened.runtimeCalls.map(call => call.action), ["state"]);
   await reopened.clear();
   assert.equal(reopened.stored.joinedInterview, undefined);
+  assert.equal(reopened.stored.candidateCredential, undefined);
+  assert.deepEqual(reopened.runtimeCalls.map(call => call.action), ["state", "clear"]);
   assert.equal(reopened.element("join-form").hidden, false);
   assert.equal(reopened.requests.length, 0, "Clearing is local only");
   assert.match(reopened.element("join-status").textContent, /new, unused code/);
@@ -244,7 +304,9 @@ test("retains successful in-memory details and warns if saving fails", async () 
   await app.submit();
   assert.equal(app.element("joined-interview").hidden, false);
   assert.match(app.element("join-status").textContent, /joined successfully/);
-  assert.match(app.element("join-storage-warning").textContent, /Do not reuse the code/);
+  assert.match(app.element("join-storage-warning").textContent, /new interview code/);
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.deepEqual(app.runtimeCalls, []);
   await app.submit();
   assert.equal(app.requests.length, 1);
 });
@@ -253,7 +315,7 @@ test("explains unavailable or invalid saved state without attempting to rejoin",
   for (const options of [{ getFails: true }, { saved: { joinedInterview: { session_id: "broken" } } }]) {
     const app = await popup(options);
     assert.equal(app.requests.length, 0);
-    assert.equal(app.element("join-session").disabled, false);
+    assert.equal(app.element("join-session").disabled, Boolean(options.getFails));
     assert.match(app.element("join-storage-warning").textContent, /do not reuse/i);
   }
 });
@@ -262,7 +324,7 @@ test("a failed clear keeps the joined details visible", async () => {
   const app = await popup({ saved: { joinedInterview: confirmation }, removeFails: true });
   await app.clear();
   assert.equal(app.element("joined-interview").hidden, false);
-  assert.match(app.element("join-status").textContent, /Could not clear/);
+  assert.match(app.element("monitoring-message").textContent, /Could not clear/);
 });
 
 test("handles network failures and timeouts without retrying the single-use code", async () => {
@@ -321,7 +383,7 @@ test("unknown error codes cannot expose inherited object functions", async () =>
   assert.equal(app.element("join-status").textContent.includes("function"), false);
 });
 
-test("Send Test Event and the legacy popup coexist with the join flow", async () => {
+test("manual synthetic connection test remains independent of candidate monitoring", async () => {
   const app = await popup({ includeDevelopmentTools: true, fetch: url => String(url).endsWith("/api/dev/events")
     ? reply(201, { success: true, event_id: "evt_test", session_id: "test-session-001" })
     : reply(200, confirmation) });
@@ -332,6 +394,146 @@ test("Send Test Event and the legacy popup coexist with the join flow", async ()
   assert.equal(app.requests.length, 3);
   assert.match(app.element("join-status").textContent, /joined successfully/);
   assert.equal(app.element("test-event-status").textContent, "Test event sent successfully!");
-  assert.equal(app.element("status").textContent, "Not recording");
-  assert.deepEqual(app.runtimeCalls, []);
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.deepEqual(app.runtimeCalls.map(call => call.action), ["state"]);
+});
+
+test("fails closed before consuming a join code when trusted storage is unavailable", async () => {
+  const app = await popup({ accessFails: true });
+  await app.submit();
+  assert.deepEqual(app.accessLevels, ["TRUSTED_CONTEXTS"]);
+  assert.equal(app.requests.length, 0);
+  assert.equal(app.element("join-session").disabled, true);
+});
+
+test("handles legacy sessions and malformed or missing join credentials without token recovery", async () => {
+  for (const fields of [
+    { candidate_token: undefined }, { candidate_token: "bad\nheader" },
+    { token_type: "Basic" }, { required_consent_version: null }, { candidate_token_expires_at: "no date" },
+    { candidate_token_expires_at: "2020-01-01T00:00:00Z" },
+  ]) {
+    const app = await popup({ fetch: () => reply(200, { ...confirmation, ...fields }) });
+    await app.submit();
+    assert.equal(app.stored.candidateCredential, null);
+    assert.equal(app.element("start-monitoring").disabled, true);
+    assert.match(app.element("monitoring-message").textContent, /new interview code/);
+    assert.equal(app.requests.length, 1);
+  }
+  const app = await popup({ saved: { joinedInterview: { ...confirmation, candidate_token: undefined } } });
+  assert.deepEqual(app.runtimeCalls.map(call => call.action), ["state"]);
+  assert.equal(app.element("clear-joined-interview").disabled, false);
+  assert.equal(app.element("grant-consent").disabled, true);
+  assert.match(app.element("monitoring-message").textContent, /new interview code/);
+});
+
+test("allows a new code after a pending stop loses its credential without claiming backend confirmation", async () => {
+  const app = await popup({ saved: { joinedInterview: confirmation }, worker: ({ action }) => action === "clear" ? { cleared: true }
+    : workerView(confirmation, "GRANTED", "ACTIVE", { pending: "stop", collecting: false, canClear: true, needsCode: true,
+      message: "The backend could not confirm your stop. Ask your employer for a new interview code." }) });
+  assert.equal(app.element("monitoring-status").textContent, "ACTIVE");
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.match(app.element("monitoring-message").textContent, /could not confirm/);
+  assert.equal(app.element("clear-joined-interview").disabled, false);
+  await app.clear();
+  assert.equal(app.element("join-form").hidden, false);
+});
+
+test("renders authoritative policy, consent and monitoring across candidate actions", async () => {
+  let current = workerView({ ...confirmation, title: "Updated interview", policy: { ...confirmation.policy, ai_usage: "PROHIBITED" } });
+  const app = await popup({ worker: ({ action, consentVersion }) => {
+    const state = current.state;
+    if (action === "decline") current = workerView(state, "DECLINED");
+    if (action === "grant") {
+      assert.equal(consentVersion, state.consent.required_version);
+      current = workerView(state, "GRANTED");
+    }
+    if (action === "start") current = workerView(state, "GRANTED", "ACTIVE");
+    if (action === "withdraw") current = workerView(state, "WITHDRAWN", "STOPPED");
+    return current;
+  } });
+  await app.submit();
+  assert.equal(app.element("interview-title").textContent, "Updated interview");
+  assert.equal(app.element("interview-policy").textContent, "AI use prohibited");
+  assert.equal(app.element("policy-disclosure").open, true);
+  assert.equal(app.element("consent-version").textContent, confirmation.required_consent_version);
+  assert.equal(app.element("start-monitoring").disabled, true);
+  await app.click("start-monitoring");
+  await app.click("decline-consent");
+  assert.equal(app.element("consent-status").textContent, "DECLINED");
+  assert.equal(app.element("start-monitoring").disabled, true);
+  await app.click("grant-consent");
+  assert.equal(app.element("policy-disclosure").open, false);
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.equal(app.element("start-monitoring").disabled, false);
+  await app.click("start-monitoring");
+  assert.equal(app.element("monitoring-status").textContent, "ACTIVE");
+  assert.equal(app.element("collection-status").textContent, "Running");
+  assert.equal(app.element("clear-joined-interview").disabled, true);
+  await app.click("withdraw-consent");
+  assert.equal(app.element("monitoring-status").textContent, "STOPPED");
+  assert.equal(app.element("consent-status").textContent, "WITHDRAWN");
+  assert.equal(app.element("start-monitoring").hidden, true);
+  assert.equal(app.element("grant-consent").hidden, true);
+  assert.deepEqual(app.runtimeCalls.map(call => call.action), ["state", "decline", "grant", "start", "withdraw"]);
+});
+
+test("a changed disclosure requires the candidate to review and grant the displayed version", async () => {
+  const old = workerView(confirmation, "GRANTED");
+  old.state.consent.required_version = "2026-11-monitoring-v2";
+  const app = await popup({ worker: () => old });
+  await app.submit();
+  assert.equal(app.element("grant-consent").disabled, false);
+  assert.equal(app.element("policy-disclosure").open, true);
+  assert.equal(app.element("start-monitoring").hidden, true);
+  await app.click("grant-consent");
+  assert.equal(app.runtimeCalls.at(-1).consentVersion, "2026-11-monitoring-v2");
+});
+
+test("stop interrupts a refresh and an older reply cannot restart a stopped popup", async () => {
+  const active = workerView(confirmation, "GRANTED", "ACTIVE");
+  let resolveRefresh;
+  let resolveStop;
+  const app = await popup({
+    saved: { joinedInterview: confirmation },
+    worker: ({ action }) => new Promise(resolve => {
+      if (action === "state") resolveRefresh = resolve;
+      if (action === "stop") resolveStop = resolve;
+    }),
+  });
+  app.push(active);
+  assert.equal(app.element("stop-monitoring").disabled, false);
+  const stopping = app.click("stop-monitoring");
+  assert.equal(app.element("stop-monitoring").disabled, true);
+  app.push({ ...active, collecting: false, pending: "stop", message: "Waiting for backend confirmation." });
+  assert.equal(app.element("monitoring-status").textContent, "ACTIVE");
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.match(app.element("monitoring-message").textContent, /confirmation/);
+  resolveStop(workerView(confirmation, "GRANTED", "STOPPED"));
+  await stopping;
+  resolveRefresh(active);
+  await flush();
+  app.push(active);
+  assert.equal(app.element("monitoring-status").textContent, "STOPPED");
+  assert.equal(app.element("collection-status").textContent, "Off");
+  assert.deepEqual(app.runtimeCalls.map(call => call.action), ["state", "stop"]);
+});
+
+test("opening the popup allows a stop request before the first state reply and ignores unrelated pushes", async () => {
+  let resolveRefresh;
+  const app = await popup({
+    saved: { joinedInterview: confirmation },
+    worker: ({ action }) => action === "state" ? new Promise(resolve => { resolveRefresh = resolve; })
+      : workerView(confirmation, "GRANTED", "ACTIVE", { pending: "stop", collecting: false }),
+  });
+  const stopped = workerView(confirmation, "GRANTED", "STOPPED");
+  app.push(stopped, "different-session");
+  app.push(stopped, confirmation.session_id, { id: "another-extension" });
+  app.push(stopped, confirmation.session_id, { id: "vouch-test", tab: { id: 2 } });
+  assert.equal(app.element("monitoring-status").textContent, "Unconfirmed");
+  await app.click("stop-monitoring");
+  assert.match(app.element("monitoring-message").textContent, /backend confirmation/);
+  resolveRefresh(stopped);
+  await flush();
+  assert.equal(app.element("monitoring-status").textContent, "ACTIVE");
+  assert.equal(app.element("start-monitoring").disabled, true);
 });
