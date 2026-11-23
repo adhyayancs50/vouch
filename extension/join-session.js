@@ -8,7 +8,6 @@
   const retryMessage = document.getElementById("join-retry");
   const storageWarning = document.getElementById("join-storage-warning");
   const details = document.getElementById("joined-interview");
-  const clearButton = document.getElementById("clear-joined-interview");
   const policyLabels = {
     PROHIBITED: "AI use prohibited",
     PARTIALLY_ALLOWED: "AI use partially allowed",
@@ -37,7 +36,6 @@
     joinButton.disabled = fields.disabled || Date.now() < retryAt;
     joinButton.textContent = busy ? "Joining…" : "Join Session";
     form.setAttribute("aria-busy", String(busy));
-    clearButton.disabled = !ready || busy;
   }
 
   function validInterview(value) {
@@ -51,14 +49,14 @@
       domains(value.policy.allowed_domains) && domains(value.policy.restricted_domains);
   }
 
-  function renderInterview() {
-    document.getElementById("interview-title").textContent = joinedInterview.title;
+  function renderInterview({ title, policy } = joinedInterview) {
+    document.getElementById("interview-title").textContent = title;
     document.getElementById("interview-candidate").textContent = joinedInterview.candidate_name || "";
     document.getElementById("interview-candidate-row").hidden = !joinedInterview.candidate_name;
-    document.getElementById("interview-policy").textContent = policyLabels[joinedInterview.policy.ai_usage];
+    document.getElementById("interview-policy").textContent = policyLabels[policy.ai_usage];
     for (const [id, domains] of [
-      ["interview-allowed-domains", joinedInterview.policy.allowed_domains],
-      ["interview-restricted-domains", joinedInterview.policy.restricted_domains],
+      ["interview-allowed-domains", policy.allowed_domains],
+      ["interview-restricted-domains", policy.restricted_domains],
     ]) {
       const list = document.getElementById(id);
       list.replaceChildren();
@@ -68,6 +66,31 @@
         list.append(item);
       }
     }
+  }
+
+  function onCleared() {
+    joinedInterview = null;
+    warnAboutStorage();
+    showMessage("Saved interview cleared. Use a new, unused code to join another interview.");
+    updateControls();
+    codeInput.focus();
+  }
+
+  function candidateCredential(body) {
+    if (body.token_type !== "Bearer" || typeof body.candidate_token !== "string" ||
+        !/^[A-Za-z0-9_-]+$/.test(body.candidate_token) ||
+        typeof body.candidate_token_expires_at !== "string" ||
+        !(Date.parse(body.candidate_token_expires_at) > Date.now()) ||
+        typeof body.required_consent_version !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(body.required_consent_version)) return null;
+    return {
+      session_id: body.session_id,
+      candidate_id: body.candidate_id,
+      candidate_token: body.candidate_token,
+      token_type: body.token_type,
+      candidate_token_expires_at: body.candidate_token_expires_at,
+      required_consent_version: body.required_consent_version,
+    };
   }
 
   function updateRetryCountdown() {
@@ -195,14 +218,19 @@
       codeInput.value = "";
       nameInput.value = "";
       renderInterview();
-      showMessage("Interview joined successfully. Joining has not started monitoring.");
+      showMessage("Interview joined successfully.");
       updateControls();
       try {
-        await chrome.storage.local.set({ joinedInterview });
+        await chrome.storage.local.set({ joinedInterview, candidateCredential: candidateCredential(body) });
         warnAboutStorage();
       } catch {
-        warnAboutStorage("You joined, but these details could not be saved. They will be lost when this popup closes. Do not reuse the code; ask the employer for help if needed.");
+        warnAboutStorage("You joined, but Chrome could not save your interview and credential. Do not reuse the code. Ask your employer for a new interview code.");
+        document.getElementById("monitoring-status").textContent = "Unavailable";
+        document.getElementById("consent-status").textContent = "Unavailable";
+        document.getElementById("collection-status").textContent = "Off";
+        return;
       }
+      await monitoringPanel.open(joinedInterview.session_id, renderInterview, onCleared, false);
     } catch (error) {
       if (requestStarted) codeInput.value = "";
       showMessage(error.name === "AbortError"
@@ -215,43 +243,30 @@
     }
   });
 
-  clearButton.addEventListener("click", async () => {
-    if (!ready || busy || !joinedInterview) return;
-    busy = true;
-    updateControls();
-    try {
-      await chrome.storage.local.remove("joinedInterview");
-      joinedInterview = null;
-      warnAboutStorage();
-      showMessage("Saved interview cleared. Use a new, unused code to join another interview.");
-    } catch {
-      showMessage("Could not clear the saved interview details. Please try again.", "error");
-    } finally {
-      busy = false;
-      updateControls();
-      if (!joinedInterview) codeInput.focus();
-    }
-  });
-
   async function initialize() {
     try {
+      await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const saved = await chrome.storage.local.get(["joinedInterview", "joinRetryAfter"]);
       if (validInterview(saved.joinedInterview)) {
         joinedInterview = saved.joinedInterview;
         renderInterview();
-        showMessage("Showing your saved join confirmation. Monitoring has not been started by joining.");
+        showMessage("");
+        updateControls();
+        monitoringPanel.open(joinedInterview.session_id, renderInterview, onCleared, true);
       } else {
         showMessage("Enter your interview join code to see the details and AI-use policy.");
-        if (saved.joinedInterview) warnAboutStorage("Saved interview details could not be read. If you already joined, do not reuse its single-use code; ask the employer for help.");
+        if (saved.joinedInterview) {
+          warnAboutStorage("Saved interview details could not be read. Do not reuse its single-use code. Ask your employer for a new interview code.");
+        }
       }
       if (typeof saved.joinRetryAfter === "number" && Number.isFinite(saved.joinRetryAfter)) {
         retryAt = saved.joinRetryAfter;
       }
-    } catch {
-      showMessage("Enter an unused interview join code.");
-      warnAboutStorage("Saved details could not be loaded. If you already joined an interview, do not reuse its single-use code. New join details may last only while this popup stays open.");
-    } finally {
       ready = true;
+    } catch {
+      showMessage("Private interview storage is unavailable.");
+      warnAboutStorage("Reopen the extension before joining. If you already joined, do not reuse its single-use code.");
+    } finally {
       updateRetryCountdown();
     }
   }

@@ -6,68 +6,75 @@
     <title>Vouch</title>
     <link rel="stylesheet" href="popup.css">
     <script src="backend-config.js" defer></script>
+    <script src="popup.js" defer></script>
     <script src="join-session.js" defer></script>
     <script src="test-event.js" defer></script>
-    <script src="popup.js" defer></script>
   </head>
   <body>
     <h1>Vouch</h1>
-    <section class="join-panel" aria-label="Interview joining">
-      <h2>Join your interview</h2>
-      <p class="notice">Joining does not start monitoring or give consent to tracking.</p>
+    <main class="join-panel">
       <form id="join-form" novalidate>
+        <h2>Join your interview</h2>
+        <p class="notice">You choose whether to share browser activity after you join.</p>
         <fieldset id="join-fields" disabled>
           <label for="join-code">Interview join code</label>
           <input id="join-code" type="text" required maxlength="64" autocomplete="off" spellcheck="false" aria-describedby="join-help join-status" placeholder="SWY8-BSFT-3XS6-F4GH">
-          <p id="join-help" class="hint">Enter the code from your employer. Codes can only be used once.</p>
+          <p id="join-help" class="hint">Enter the single-use code from your employer.</p>
           <label for="candidate-name">Your name <span class="hint">(optional)</span></label>
           <input id="candidate-name" type="text" maxlength="120" autocomplete="off">
           <button id="join-session" type="submit" disabled>Join Session</button>
-          <p class="hint">Keep this popup open while joining. If it closes before confirmation, ask the employer to check before trying the code again.</p>
+          <p class="hint">Keep this popup open while joining. If it closes before confirmation, ask your employer to check before trying the code again.</p>
         </fieldset>
       </form>
       <p id="join-status" role="status" aria-live="polite" aria-atomic="true">Loading saved interview details…</p>
       <p id="join-retry" class="hint" role="timer" aria-live="off" hidden></p>
       <p id="join-storage-warning" class="notice" role="alert" hidden></p>
       <section id="joined-interview" aria-labelledby="interview-title" hidden>
-        <p class="joined-badge">Joined</p>
         <h2 id="interview-title"></h2>
-        <p id="interview-candidate-row">Candidate: <span id="interview-candidate"></span></p>
-        <h3>AI-use policy</h3>
-        <p id="interview-policy" class="policy"></p>
-        <h3>Allowed domains</h3>
-        <ul id="interview-allowed-domains"></ul>
-        <h3>Restricted domains</h3>
-        <ul id="interview-restricted-domains"></ul>
-        <p class="hint">These are saved join details. Reopening the popup shows this confirmation; it does not reconnect or resume an interview.</p>
-        <button id="clear-joined-interview" class="secondary" type="button">Clear saved interview</button>
-        <p class="hint">Clearing removes this browser’s saved details. It does not leave the interview or make its code reusable.</p>
+        <p id="interview-candidate-row">Candidate <span id="interview-candidate"></span></p>
+        <dl class="statuses" aria-live="polite">
+          <dt>Consent</dt><dd id="consent-status">Checking…</dd>
+          <dt>Backend monitoring</dt><dd id="monitoring-status">Checking…</dd>
+          <dt>Local collection</dt><dd id="collection-status">Checking…</dd>
+        </dl>
+        <p id="monitoring-message" class="notice" role="status" aria-live="polite" hidden></p>
+        <div class="actions">
+          <button id="stop-monitoring" type="button" hidden>Stop Monitoring</button>
+          <button id="start-monitoring" type="button" hidden>Start Monitoring</button>
+          <button id="withdraw-consent" class="secondary" type="button" hidden>Withdraw Consent</button>
+        </div>
+        <details id="policy-disclosure" open>
+          <summary>Interview policy and consent</summary>
+          <h3>Employer’s AI-use policy</h3>
+          <p id="interview-policy" class="policy"></p>
+          <h3>Allowed domains</h3>
+          <ul id="interview-allowed-domains"></ul>
+          <h3>Restricted domains</h3>
+          <ul id="interview-restricted-domains"></ul>
+          <h3>What you share</h3>
+          <p>During active monitoring, Vouch records tab switches and changes to the website in your active tab in the focused Chrome window. Each event includes the time and a browser tab ID. For website changes, Vouch also records the hostname, such as example.com. Your employer can review these events.</p>
+          <p>Vouch does not collect keystrokes, screenshots, clipboard or page contents, page titles, or full URLs with paths, queries or fragments. It cannot see activity in other applications, devices or browsers.</p>
+          <p>Joining and granting consent leave monitoring off until you choose Start Monitoring. You can decline consent, withdraw it later, or stop monitoring at any time. Once stopped, monitoring cannot restart for this interview.</p>
+          <p id="consent-version-row" class="hint" hidden>Disclosure version <span id="consent-version"></span></p>
+        </details>
+        <div class="actions">
+          <button id="grant-consent" type="button" hidden>Grant Consent</button>
+          <button id="decline-consent" class="secondary" type="button" hidden>Decline Consent</button>
+        </div>
+        <button id="refresh-monitoring" class="secondary" type="button" hidden>Refresh status</button>
+        <div id="clear-interview-row" hidden>
+          <button id="clear-joined-interview" class="secondary" type="button" disabled>Clear saved interview</button>
+          <p class="hint">Clearing removes this browser’s saved interview and credential. You’ll need a new interview code to join again.</p>
+        </div>
       </section>
-    </section>
-    <section aria-label="Backend connection test">
-      <button id="send-test-event">Send Test Event</button>
-      <p id="test-event-status" role="status" aria-live="polite">Manual connection test. No browser records are sent.</p>
+    </main>
+    <details class="development">
+      <summary>Development connection test</summary>
+      <p id="test-event-status" role="status" aria-live="polite">Send a synthetic event to check the local backend connection.</p>
+      <button id="send-test-event" class="secondary" type="button">Send Test Event</button>
       <details>
         <summary>Inspect test response</summary>
         <pre id="test-event-response">No request sent yet.</pre>
-      </details>
-    </section>
-    <details class="local-prototype">
-      <summary>Local recording prototype</summary>
-      <p class="label">Separate local test session</p>
-      <p>This development tool is separate from joining an interview.</p>
-      <p>While active, this prototype records tab switches with tab IDs and timestamps. Records stay in this browser. It does not collect URLs, page contents, or keystrokes.</p>
-      <label><input id="consent" type="checkbox"> I agree to this recording for a test session.</label>
-      <p id="status" role="status">Loading…</p>
-      <div class="actions">
-        <button id="start" disabled>Start test session</button>
-        <button id="stop" disabled>Stop</button>
-      </div>
-      <p id="count">Recorded switches: 0</p>
-      <p>Starting a new test clears the previous test’s records. Up to 1,000 switches are kept per test; tracking stops at that limit.</p>
-      <details>
-        <summary>View local records</summary>
-        <pre id="events">[]</pre>
       </details>
     </details>
   </body>

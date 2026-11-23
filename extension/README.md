@@ -1,14 +1,10 @@
-# extension
+# Vouch Chrome extension
 
-Browser extension for vouch, the privacy-first interview verification system.
+A candidate joins an interview, reviews the employer’s AI-use policy and decides whether to share browser activity. Granting consent and starting monitoring are separate actions. The employer can review the timestamped events that the backend accepts.
 
-## Status
+## Run locally
 
-Manifest V3 extension with candidate interview joining, saved interview details and AI-use policy, and a manual backend connection test. Joining does not start monitoring or give consent to tracking. The earlier consent-based local recording prototype is kept in a separate disclosure. No build step or extension dependencies are required.
-
-## Join an interview (Milestone 4)
-
-1. From the project root, start the latest backend on the same computer as Chrome:
+1. Use Chrome 111 or later and the Milestone 5 backend on the same computer. From the repository root, start the development server.
 
    ```sh
    cd backend
@@ -18,198 +14,65 @@ Manifest V3 extension with candidate interview joining, saved interview details 
    VOUCH_ENABLE_DEV_ENDPOINTS=true python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
 
-   Leave this terminal running. `/api/sessions` requires the dev flag. See
-   [the session API contract](../backend/API_SESSIONS.md) for backend setup.
-2. Create an interview in the employer dashboard and copy its one-time join code.
-   Alternatively, run this command in another terminal to create a fresh test interview:
+   If you have a Milestone 4 database, point `VOUCH_DATABASE_URL` at a fresh SQLite database, for example `sqlite:////tmp/vouch-monitoring-test.db`. The backend has no migration for the old schema. The candidate APIs require the development flag and a loopback connection. [Session contract](../backend/API_SESSIONS.md) · [Monitoring contract](../backend/API_MONITORING.md)
+
+2. Create an interview in the employer dashboard. For a local test you can also run the following command. Keep the returned `session_id` and copy the one-time `candidate_join_code`.
 
    ```sh
-   curl --noproxy '*' --max-time 10 -sS -X POST http://127.0.0.1:8000/api/sessions \
+   curl --noproxy '*' -sS http://127.0.0.1:8000/api/sessions \
      -H 'Content-Type: application/json' \
      -H 'X-Vouch-Dev-Employer: extension-test' \
-     -d '{"title":"Extension join test","candidate_name":"Jordan Lee","policy":{"ai_usage":"PARTIALLY_ALLOWED","allowed_domains":["docs.python.org"],"restricted_domains":["chatgpt.com","claude.ai"]}}'
+     -d '{"title":"Extension monitoring test","policy":{"ai_usage":"PARTIALLY_ALLOWED","allowed_domains":["docs.python.org"],"restricted_domains":[]}}'
    ```
 
-   Copy `candidate_join_code` from that response. Each successful join consumes
-   the code; create a new interview for another successful test.
-3. Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
-   Select the project's **`extension/`** directory, which contains `manifest.json`.
-   If Vouch is already loaded, stop any local recording test, click **Reload**,
-   and close/reopen the popup.
-4. Enter the code and, optionally, your name; click **Join Session**. Case,
-   hyphens, and spaces are handled by the backend. Keep the popup open until
-   confirmation. The candidate request sends no employer header.
-5. Verify **Joined**, the interview title, candidate name when available, the
-   AI-use policy, and both domain lists. An empty list shows **None specified**.
-   Joining sends no recording command and uploads no browser records.
-6. Close/reopen the popup. The saved confirmation should reappear without a
-   network request. This is a local snapshot, not an authenticated resume or
-   a live check of the interview's current backend status.
+3. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked** and select this `extension/` directory. Click **Reload** if it is already installed. No extension build or package install is required.
+4. Open Vouch, enter the code and optionally your name. Keep the popup open until joining is confirmed. A lost response can consume the code. Ask the employer to verify before trying it again.
+5. Review the title, domain lists, AI-use policy and disclosure. **Decline Consent** leaves collection off. **Grant Consent** records the displayed disclosure version. **Start Monitoring** begins collection once the server confirms `ACTIVE`.
+6. The popup shows separate consent, monitoring and local collection states. Close the popup to browse. **Stop Monitoring** ends this session’s collection. **Withdraw Consent** records withdrawal and ends active monitoring. You can also withdraw after stopping. A stopped session requires a fresh interview to monitor again.
 
-### Error and privacy checks
+The collapsed **Development connection test** sends one synthetic `EXTENSION_CONNECTED` record to `/api/dev/events` when clicked. The former local recording prototype has been replaced by the authenticated interview controls. Its older local records are never uploaded.
 
-- Submit an empty/space-only code: a message appears without making a request.
-  A blank optional name is omitted from the request.
-- Click **Clear saved interview**, then submit the used code: expect the
-  already-used message (409). Clearing details never makes a code reusable.
-- Submit `AAAA-AAAA-AAAA-AAAA`: expect an invalid-code message (401).
-- Expired codes show a new-session instruction (410); validation errors (422),
-  nonlocal requests (403), missing/disabled session endpoints (404), connection
-  failures, and server errors each show a readable message without tracebacks.
-- A 429 disables joining for `Retry-After`, with a countdown. The cooldown is
-  saved across popup closure; both seconds and HTTP-date headers are supported.
-  An absent/invalid header uses a one-minute UI cooldown. The backend enforces
-  its own limit independently.
-- Double clicking/pressing Enter while a join is pending sends one request.
-  No join is retried automatically.
-- If the popup closes, the network fails, or it times out before confirmation
-  is saved, the backend may already have accepted the code. Ask the employer
-  to check; do not assume the same single-use code can be used again.
+## Permissions and data
 
-`chrome.storage.local.joinedInterview` contains only the confirmed session and
-candidate IDs, interview title, candidate name, joined status/time, and policy.
-The plaintext code is never saved or logged and is cleared from the input on
-success or an uncertain network outcome. No token is assumed or saved.
-**Clear saved interview** removes this local snapshot, not the backend session.
-If Chrome storage fails, confirmed details remain visible for the current
-popup and a warning explains that closing it will lose them.
+| Permission | Purpose |
+| --- | --- |
+| `storage` | Save the joined interview and bearer credential, last confirmed candidate state, pending stop or withdrawal, and the bounded event queue and sequence. Local storage access is restricted to trusted extension contexts. |
+| `tabs` | Read tab URL changes and the selected tab’s hostname in the focused Chrome window. Only a validated hostname can enter a website-navigation event. |
+| `alarms` | Wake the service worker to verify active state, retry eligible uploads and finish pending stops or withdrawals while the popup is closed. |
+| `http://127.0.0.1:8000/*` | Send interview requests to the local development backend. If you change its port, update `backend-config.js` and the manifest together. |
 
-The existing `storage` and loopback host permissions cover joining. No new
-permissions, tracking listeners, automatic monitoring, or resume endpoint were added.
+The extension has no content scripts, page injection or browsing-history permission. It excludes incognito windows. Only the trusted popup and service worker handle the candidate credential. Candidate API requests send it in the bearer header and refuse redirects. A missing, invalid or expired credential requires a new session and code from the employer. This also applies to interviews joined with the Milestone 4 extension.
 
-### Automated extension checks
+While collection is running, a tab switch records the selected tab ID and a UTC timestamp. The switch hostname may be null. A website-navigation event records a change in the selected tab’s HTTP(S) hostname. Same-host paths, queries, fragments, reloads and background-tab navigations produce no navigation event. URLs, page contents or titles, screenshots, keystrokes and clipboard contents are never saved in the activity queue or sent. Activity in another browser, device or application is outside the extension’s scope. The records describe observations and do not establish whether someone used AI.
 
-With Node.js available, run from the project root:
+## Delivery and recovery
+
+- The service worker checks `GET /api/sessions/{id}/candidate` on popup refresh and before resuming a locally started session after a worker restart. Collection requires current consent, a usable credential and confirmed `ACTIVE` state. A pending stop or withdrawal takes precedence, including when the server still reports `ACTIVE`.
+- Each event gets a UUID and a per-session sequence number. The worker saves the exact payload and next sequence together before uploading. It sends at most 50 per request and accepts both `STORED` and `DUPLICATE` acknowledgments for those IDs.
+- Transient failures use bounded exponential backoff and respect `Retry-After`. The queue holds at most 250 events. Collection pauses at capacity and can resume when space is available and the session still qualifies. A permanently rejected event is isolated, counted and discarded. Reaching the server’s session limit pauses collection.
+- Stop immediately detaches activity listeners. The worker serializes any in-flight upload, tries to flush eligible queued events, then requests the stop. Withdrawal skips the final flush. If the server cannot confirm termination, the popup shows collection off and confirmation pending. The worker retries the termination without resending events. Once termination is confirmed, any remaining undeliverable events are discarded and counted.
+- Chrome can suspend the worker. Events that occur while it is waking, rechecking the session or establishing a new focused-tab baseline can be missed. There is no history backfill. Window focus changes establish a new baseline and alone produce no event. Internal URLs, IPv6 literals and hostnames the backend cannot accept produce no website-navigation event. [Chrome service-worker events](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/events)
+
+## Tests
+
+From the repository root, use Node.js 22 or later.
 
 ```sh
-node --test extension/tests/join-session.test.mjs
+node --test extension/tests/*.test.mjs
 ```
 
-These dependency-free controller/DOM tests exercise joining, policy rendering,
-error responses, loading/duplicate protection, rate limits, persistence and
-storage failures, text safety, and coexistence with the existing development tools.
+The tests exercise popup joining and consent, Chrome tab and window callbacks, and service-worker behavior with controlled storage, network failures and restarts. Use real Chrome and the local backend for the following checks.
 
-## Try the separate local recording prototype
-
-1. Open `chrome://extensions` in Chrome.
-2. Enable **Developer mode**, click **Load unpacked**, and select this `extension/` folder.
-3. Open Vouch from Chrome's extensions menu.
-4. Expand **Local recording prototype**, accept its recording notice, and click **Start test session**.
-5. Close the popup and switch tabs a few times.
-6. Reopen Vouch and expand **View local records**.
-7. Click **Stop**, switch tabs again, and confirm the count stays unchanged.
-
-Before consent and Start, no events should be recorded. Reopening the popup should preserve session status. Records include tab IDs and UTC timestamps, without URLs or page contents. Records remain in `chrome.storage.local`; starting a new test clears previous records. Tracking stops at 1,000 records or on browser restart. This prototype observes tab activation across the current Chrome profile; window-focus changes alone are not recorded.
-
-After editing the code, click the extension's reload button in `chrome://extensions`. Treat reloads/updates as development interruptions and stop your test session first.
-
-## Docs
-
-See [system architecture](../docs/02-system-architecture.md) and [feature specifications](../docs/04-feature-specifications.md).
-
-## Manual backend connection test
-
-1. Use backend code containing Srihith's development endpoint, from
-   `feature/backend-dev-events` or a `main` version that includes it. Testing
-   before merge is supported; see the separate-copy instructions below.
-   A backend without the endpoint will return 404 even with the flag below.
-   Start the backend **on the same computer as Chrome**, from that backend's
-   directory, with its Python environment active:
+1. Join a fresh interview and compare the title and policy with the employer’s setup. Switch tabs, decline, then grant consent. Before Start, verify the employer’s timeline is empty.
+2. Choose **Start Monitoring**, close the popup and switch between two tabs in the focused window. In one active tab, navigate from `http://localhost:8000/health` to `http://127.0.0.1:8000/health?private=example#fragment`. Change only the path or query on the second host. Check that tab switches and the hostname change appear in sequence and the path, query and fragment never appear.
+3. To inspect the employer timeline, substitute the session ID and use the employer key that created the interview.
 
    ```sh
-   VOUCH_ENABLE_DEV_ENDPOINTS=true uvicorn app.main:app --reload
+   curl --noproxy '*' -sS \
+     -H 'X-Vouch-Dev-Employer: extension-test' \
+     'http://127.0.0.1:8000/api/sessions/SESSION_ID/events'
    ```
 
-   The log should say `Development endpoints are ENABLED (/api/dev/*)`.
-   Use `http://127.0.0.1:8000`, not `localhost` or Srihith's computer.
-2. Stop any local recording session. Open `chrome://extensions`, find Vouch,
-   click **Reload**, then close and reopen its popup.
-3. Click **Send Test Event**. No recording consent or Start action is required.
-   The button sends exactly one synthetic event with `session_id: "test-session-001"`,
-   `event_type: "EXTENSION_CONNECTED"`, a fresh UTC ISO timestamp, and empty metadata.
-   It never sends local records and does not retry automatically.
-4. Expand **Inspect test response** for the HTTP status and raw response body.
-   Acceptance shows **Test event sent successfully!** with HTTP 201 and an
-   `event_id` in the response. Copy that ID and open
-   `http://127.0.0.1:8000/api/dev/events` in a browser; find the same `event_id`
-   and `session_id: "test-session-001"` in the returned `events` array to check
-   what the backend received. Events are kept in memory, oldest first, and
-   cleared on backend restart.
-5. For more detail, right-click inside the popup and choose **Inspect**; use **Network** to view
-   the POST payload/response and **Console** for browser errors. Keep the popup
-   open while testing; closing it can interrupt the request.
-
-### Test Srihith's branch before it is merged
-
-From the project root, these commands fetch the branch and extract its backend
-into a temporary directory. They preserve your current branch and extension
-edits. Leave the final command running while testing in Chrome:
-
-```sh
-git fetch origin feature/backend-dev-events
-backend_test_dir=$(mktemp -d /tmp/vouch-backend-test.XXXXXX)
-git archive origin/feature/backend-dev-events backend | tar -x -C "$backend_test_dir"
-python3 -m venv "$backend_test_dir/.venv"
-"$backend_test_dir/.venv/bin/python" -m pip install -r "$backend_test_dir/backend/requirements.txt"
-VOUCH_ENABLE_DEV_ENDPOINTS=true "$backend_test_dir/.venv/bin/python" -m uvicorn app.main:app --app-dir "$backend_test_dir/backend" --host 127.0.0.1 --port 8000
-```
-
-Only run one backend on port 8000 at a time. Press **Ctrl+C** in its terminal to
-stop it. To restart, run the last command in the same terminal while the
-temporary directory still exists. A backend restart clears its in-memory events.
-
-### Confirmed development contract
-
-`POST /api/dev/events` accepts only these four fields: `session_id` (a string
-of 1–128 characters), `event_type` (`EXTENSION_CONNECTED`), `timestamp` (UTC
-ISO 8601 ending in `Z`), and `metadata` (a JSON object up to 4 KB). The original
-test session ID and empty metadata meet these rules; no real interview session
-is needed. No authentication token is sent; this development endpoint restricts
-requests to the same machine.
-
-`backend-config.js` confirms acceptance only when the status is **201**, JSON
-has `success: true`, `event_id` is a nonempty string, and `session_id` matches
-the submitted test event. Example:
-
-```json
-{
-  "success": true,
-  "event_id": "evt_35fe4eeace2b49768f656aef4eb549fa",
-  "session_id": "test-session-001",
-  "message": "Development test event stored."
-}
-```
-
-The display message is not used to decide acceptance. A different success
-status, missing event ID, mismatched session, or invalid JSON is treated as an
-unexpected response. Backend errors use `error.message`; validation errors
-also include `error.details` entries with the field `location` and `message`.
-This contract comes from Srihith's Milestone 3 backend-to-extension handoff.
-
-### Configuration and troubleshooting
-
-Edit `baseUrl` in `backend-config.js` to change the local port and update the
-port in `manifest.json`'s `host_permissions` to match, then reload the extension.
-The host permission is only `http://127.0.0.1:8000/*`; configuration is limited
-to HTTP on that loopback host. See [Chrome match patterns](https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
-No additional monitoring permissions were added.
-
-- Connection failure: verify the backend is running, the configured port is
-  correct, and `http://127.0.0.1:8000/health` responds. Health alone does not
-  prove the event endpoint is implemented.
-- 404: confirm Srihith's endpoint code is in your local checkout and restart
-  with `VOUCH_ENABLE_DEV_ENDPOINTS=true`. The default is disabled.
-- 403: the endpoint rejects nonlocal requests. Run backend and Chrome on the
-  same computer and connect directly to `127.0.0.1`.
-- 422: the popup shows the validation message and field details; compare the
-  payload with the confirmed schema above.
-- 500: inspect backend logs; the extension cannot fix server errors.
-- Timeout: the popup stops waiting after 10 seconds. The server may have
-  received the event, so inspect its logs before sending another.
-- Browser policy/CORS error: inspect the actual Console/Network message and
-  verify the extension was reloaded with the matching host permission. Srihith
-  confirmed that this permission allows the MV3 request without a per-extension
-  backend origin setting. Keep the frontend CORS configuration unchanged.
-
-The pre-existing consent-based local recording is preserved and independent of
-this button. No automatic backend transmission or new monitoring was added.
+4. Reopen the popup, choose **Stop Monitoring** and verify `STOPPED` and local collection **Off**. Switch tabs and check that the timeline no longer grows. Reopen again and verify that Start is unavailable. In a second interview, withdraw consent while active and verify both `WITHDRAWN` and `STOPPED`.
+5. In a fresh active interview, stop the backend, choose **Stop Monitoring** and close the popup. Restart the backend with the same database. Reopen the popup or wait for the retry alarm, then verify `STOPPED` and that activity during the outage was excluded. Repeat for withdrawal.
+6. Close extension DevTools and let Chrome suspend the worker. Reopen the popup while active and after stopping. Verify that a backend check precedes resumed collection and that a stopped session stays off. Worker scheduling and browser sleep can delay alarms, so elapsed wall-clock time and uninterrupted coverage cannot be guaranteed.
