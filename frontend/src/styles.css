@@ -120,6 +120,16 @@ fieldset:disabled { opacity: .7; }
 .details-grid dt { font-size: 12px; color: #647469; }
 .details-grid dd { margin: 4px 0 0; font-size: 14px; overflow-wrap: anywhere; }
 .panel-body h3 { overflow-wrap: anywhere; }
+.employer-policy, .monitoring-section { border-top: 1px solid #e1e6dd; margin-top: 24px; padding-top: 24px; }
+.monitoring-heading, .activity-event-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
+.monitoring-summary, .activity-empty { background: #f4f7f1; padding: 16px; border-radius: 6px; margin: 16px 0 8px; font-size: 14px; }
+.activity-heading { margin-top: 24px; }
+.monitoring-section .field-hint { margin-top: 8px; }
+.activity-timeline { list-style: none; padding: 0; margin: 20px 0; }
+.activity-event { border-left: 3px solid #739781; padding: 14px 18px; margin-top: 12px; background: #fbfcf9; }
+.activity-event.website-navigation { border-left-color: #7c8eac; }
+.activity-event-heading { justify-content: flex-start; font-size: 14px; }
+.activity-hostname { overflow-wrap: anywhere; margin-top: 6px; font-size: 14px; }
 @media (min-width: 1500px) { .main-container { padding-top: 65px; } .empty-state { padding-top: 52px; padding-bottom: 57px; } }
 @media (max-width: 900px) { .header-inner { gap: 35px; } .workspace-label { display: none; } .privacy-label { display: none; } .approach-step { padding: 18px; } .site-footer { margin: 0 40px; } }
 @media (max-width: 640px) {
