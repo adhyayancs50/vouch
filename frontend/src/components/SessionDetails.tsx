@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { AI_POLICIES, formatDate, getSession } from '../sessions'
 import type { InterviewSession } from '../sessions'
+import { SessionMonitoring } from './SessionMonitoring'
 
 export function SessionDetails({ sessionId, revision, onClose }: { sessionId: string; revision: number; onClose: () => void }) {
   const [session, setSession] = useState<InterviewSession | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
+  const [fetchedAt, setFetchedAt] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { heading.current?.focus() }, [])
 
@@ -15,7 +17,10 @@ export function SessionDetails({ sessionId, revision, onClose }: { sessionId: st
     setLoading(true)
     setError('')
     getSession(sessionId).then(data => {
-      if (active) setSession(data)
+      if (active) {
+        setSession(data)
+        setFetchedAt(new Date().toISOString())
+      }
     }).catch(error => {
       if (active) setError(error instanceof Error ? error.message : 'Could not load session details.')
     }).finally(() => { if (active) setLoading(false) })
@@ -27,18 +32,16 @@ export function SessionDetails({ sessionId, revision, onClose }: { sessionId: st
       <div className="panel-heading"><h2 id="details-heading" tabIndex={-1} ref={heading}>Session details</h2><div className="panel-actions"><button className="connection-button" type="button" disabled={loading} onClick={() => setRetry(value => value + 1)}>Refresh details</button><button className="connection-button" type="button" onClick={onClose}>Close</button></div></div>
       <div className="panel-body">
         {loading && <p role="status">Loading session details…</p>}
-        {error && <p role="alert" className="connection-error">{error}</p>}
-        {!loading && !error && session && <>
+        {error && <p role="alert" className="connection-error">{error} {session && 'Previously fetched session details are shown below.'}</p>}
+        {session && <>
           <h3>{session.title}</h3>
+          <p className="field-hint">Session details fetched {formatDate(fetchedAt)}. Refresh details to update the title, candidate and policy.</p>
           <dl className="details-grid">
-            <div><dt>Status</dt><dd>{session.status}</dd></div>
+            <div><dt>Status (session details snapshot)</dt><dd>{session.status}</dd></div>
             <div><dt>Candidate name entered by employer</dt><dd>{session.candidate_name || 'Not provided'}</dd></div>
-            <div><dt>AI-use policy</dt><dd>{AI_POLICIES[session.policy.ai_usage]}</dd></div>
             <div><dt>Created</dt><dd>{formatDate(session.created_at)}</dd></div>
             <div><dt>Join-code expiration</dt><dd>{formatDate(session.join_code_expires_at)}</dd></div>
             <div><dt>Joined</dt><dd>{session.joined_at ? formatDate(session.joined_at) : 'Candidate has not joined yet'}</dd></div>
-            <div><dt>Allowed domains</dt><dd>{session.policy.allowed_domains.join(', ') || 'None specified'}</dd></div>
-            <div><dt>Restricted domains</dt><dd>{session.policy.restricted_domains.join(', ') || 'None specified'}</dd></div>
             {session.candidate && <>
               <div><dt>Joined candidate name</dt><dd>{session.candidate.name || 'Not provided'}</dd></div>
               <div><dt>Candidate ID</dt><dd>{session.candidate.candidate_id}</dd></div>
@@ -46,7 +49,17 @@ export function SessionDetails({ sessionId, revision, onClose }: { sessionId: st
             </>}
           </dl>
           <p className="field-hint">Join codes cannot be retrieved from session details. Dates are shown in your local time.</p>
+          <section className="employer-policy" aria-labelledby="policy-heading">
+            <h3 id="policy-heading">Employer policy</h3>
+            <p className="field-hint">Expectations set by the employer. Recorded activity is presented separately without an automatic violation assessment.</p>
+            <dl className="details-grid">
+              <div><dt>AI-use policy</dt><dd>{AI_POLICIES[session.policy.ai_usage]}</dd></div>
+              <div><dt>Allowed domains</dt><dd>{session.policy.allowed_domains.join(', ') || 'None specified'}</dd></div>
+              <div><dt>Restricted domains</dt><dd>{session.policy.restricted_domains.join(', ') || 'None specified'}</dd></div>
+            </dl>
+          </section>
         </>}
+        <SessionMonitoring sessionId={sessionId} revision={revision + retry} />
       </div>
     </section>
   )

@@ -4,7 +4,7 @@ Last verified: 2026-11-22, against `main` after Milestone 5. This file records w
 
 ## Built
 
-- Employer dashboard: create, list, and read interview sessions. The one-time join code stays in memory until the employer dismisses it. The dashboard does not yet show consent, monitoring, or events.
+- Employer dashboard: create, list, and read interview sessions. The one-time join code stays in memory until the employer dismisses it. Milestone 5 Phase 3 adds read-only consent/monitoring snapshots and a paginated, sequence-ordered browser activity timeline in session details, with manual refresh, fetch timestamps, independent error handling, and employer policy presented separately. Activity is not scored or automatically classified as a policy violation. Frontend build and mocked-fetch/server-rendered tests verified on the feature branch on 2026-11-25; browser integration checks remain manual.
 - Backend, development mode only: sessions, one-time join codes, candidate bearer tokens, consent, monitoring, and browser events. Tables are created on startup. There are no migrations.
 - Chrome extension 0.2.0: join, consent, start, stop, withdraw, and submit hostname-only activity while the popup is closed. A collapsed popup control still sends one synthetic `EXTENSION_CONNECTED` event to `/api/dev/events`.
 
